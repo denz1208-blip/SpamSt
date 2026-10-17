@@ -405,7 +405,28 @@ async function runInterface() {
 
                 break;
             }
-            case "8": // Выход
+            case "8": { // Обновление с GitHub
+                const confirm = await ui.ask("> Обновить программу до свежей версии с GitHub? Ваши настройки, комментарии и адресаты сохранятся. (y/N): ");
+
+                if (confirm.toLowerCase() != "y") {
+                    console.log("> Отменено.");
+                    break;
+                }
+
+                try {
+                    const path = require("path");
+                    const { updateFromGitHub } = require("./update.js");
+
+                    await updateFromGitHub(path.join(__dirname, ".."));
+                    console.log("> Обновление завершено! Перезапустите программу (npm start), чтобы применить новые файлы.");
+                } catch (err) {
+                    console.log(`> Ошибка обновления: ${err.message}`);
+                    console.log("> Убедитесь, что есть доступ в интернет (github.com).");
+                }
+
+                break;
+            }
+            case "9": // Выход
                 ui.close();
                 console.log("> Пока!");
                 process.exit(0);
@@ -421,6 +442,24 @@ async function runInterface() {
  * Точка входа: загружает файлы конфигурации и решает, запускаться ли через интерфейс или как раньше
  */
 module.exports.run = async () => {
+
+    // Если задан флаг --update (или команда `npm update-bot`) - обновляемся с GitHub и выходим.
+    // Делается ДО загрузки config/logininfo, чтобы обновление работало даже при битых личных файлах.
+    if (process.argv.includes("--update")) {
+        const path = require("path");
+        const { updateFromGitHub } = require("./update.js");
+
+        console.log("SpamSt - обновление с GitHub");
+        console.log("-----------------------------");
+
+        return updateFromGitHub(path.join(__dirname, ".."))
+            .then(() => console.log("\nОбновление завершено! Запустите программу заново: npm start"))
+            .catch((err) => {
+                console.error(`Ошибка обновления: ${err.message}`);
+                console.error("Убедитесь, что есть доступ в интернет (github.com).");
+                process.exit(1);
+            });
+    }
 
     // Пробуем загрузить файлы и показываем кастомную ошибку если не получилось
     try {
