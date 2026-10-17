@@ -16,45 +16,38 @@ const once = (fn) => { let done = false; return (...args) => { if (done) return;
 
 /**
  * Проверяет права аккаунта на публикацию комментариев в группе БЕЗ реальной отправки текста.
- * Использует тот же ajax-эндпоинт что и настоящая публикация, но с пустым комментарием:
- * Steam сначала проверяет права - если их нет, вернет "you do not have permission";
- * если права есть - вернет ошибку про пустой текст (значит постить можно).
+ * Используем GET-эндпоинт Steam comment/Clan/canPost/<gid64>/ - он отвечает на вопрос
+ * "можно ли этому аккаунту писать в группу" и НИЧЕГО не публикует (в отличие от POST с пустым
+ * текстом, который у некоторых типов групп мог создать скрытый/мусорный пост).
+ * Ответ: {"success":true,"can_post":true} либо {"success":true,"can_post":false,"message":"причина"}.
  * @param {string} gid64 Числовой SteamID64 группы (103582...)
  * @param {object} community Экземпляр SteamCommunity
  * @param {Function} callback Вызывается как callback(err, canPost, reasonText)
  */
 function checkGroupPostingRights(gid64, community, callback) {
-    const options = {
-        uri: `https://steamcommunity.com/comment/Clan/post/${gid64}/-1/`,
-        form: {
-            comment: "",
-            count: 6,
-            sessionid: community.getSessionID(),
-        },
+    const uri = `https://steamcommunity.com/comment/Clan/canPost/${gid64}/?ajax=1`;
+
+    community.httpRequestGet({
+        uri: uri,
         headers: {
             "X-Requested-With": "XMLHttpRequest",
             "Referer": `https://steamcommunity.com/groups/${gid64}`,
         },
-        json: true,
-    };
-
-    community.httpRequestPost(options, (err, response, body) => {
+    }, "steamcommunity", (err, response, body) => {
         if (err) return callback(err);
-        if (typeof body !== "object" || body === null) return callback(null, true, ""); // Не смогли проверить - считаем что можно, реальный пост сам разберется
 
-        const msg = String(body.message || "");
+        let parsed = null;
+        try { parsed = JSON.parse(body); } catch (e) { /* не JSON */ }
 
-        // Права ЕСТЬ: Steam дошел до валидации текста (пустой комментарий)
-        if (/empty/i.test(msg)) return callback(null, true, "");
+        // Не смогли разобрать ответ - считаем что права есть, реальная публикация сама всё проверит
+        if (parsed === null || typeof parsed !== "object") return callback(null, true, "");
 
-        // Steam прямо говорит что нет прав публиковать
-        if (/permission|not allowed|banned|blocked/i.test(msg)) return callback(null, false, msg);
+        if (parsed.can_post === true) return callback(null, true, "");
+        if (parsed.can_post === false) return callback(null, false, String(parsed.message || "Steam не разрешает этому аккаунту писать комментарии в эту группу"));
 
-        // Другие причины (например "The settings on this account do not allow you to add comments")
-        if (body.success !== true && msg.length > 0) return callback(null, false, msg);
-
+        // Формат ответа неизвестен - не блокируем, пусть пробует реальный пост
         return callback(null, true, "");
-    }, "steamcommunity");
+    });
 }
 
 
@@ -111,7 +104,7 @@ function postGroupCommentChecked(gid64, quote, community, callback) {
         let hint = "";
 
         if (String(reason).includes("do not allow you to add comments")) {
-            hint = " Причина: у аккаунта нет прав писать в эту группу (аккаунт не состоит в группе / закрытая группа / комментарии только для участников / ограниченная учетная запись Steam без покупок). Включите авто-вступление (autoJoinGroups=true) или вступите вручную.";
+            hint = " Причина: у аккаунта нет прав писать в эту группу (аккаунт не состоит в группе / закрытая группа / комментарии только для участников / ограниченная учетная запись Steam без покупок). Бот автоматически попробовал вступить (autoJoinGroups) - если это не помогло, группа закрыта для новых участников / требует одобрения заявки модератором, либо аккаунт ограничен (нет покупок в Steam).";
         } else if (String(reason).includes("posting comments is currently disabled")) {
             hint = " Причина: в этой группе отключены комментарии.";
         }
