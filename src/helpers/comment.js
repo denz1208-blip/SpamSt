@@ -27,13 +27,16 @@ const once = (fn) => { let done = false; return (...args) => { if (done) return;
 function checkGroupPostingRights(gid64, community, callback) {
     const uri = `https://steamcommunity.com/comment/Clan/canPost/${gid64}/?ajax=1`;
 
+    // ВАЖНО: сигнатура httpRequestGet у steamcommunity - (uri, options, callback, source).
+    // Если передать вторым аргументом строку "steamcommunity", библиотека примет её за callback
+    // и упадёт с "callback.apply is not a function". Поэтому источник указываем 4-м аргументом.
     community.httpRequestGet({
         uri: uri,
         headers: {
             "X-Requested-With": "XMLHttpRequest",
             "Referer": `https://steamcommunity.com/groups/${gid64}`,
         },
-    }, "steamcommunity", (err, response, body) => {
+    }, null, (err, response, body) => {
         if (err) return callback(err);
 
         let parsed = null;
@@ -93,12 +96,18 @@ function postGroupCommentChecked(gid64, quote, community, callback) {
     community.httpRequestPost(options, (err, response, body) => {
         if (err) return callback(err);
         if (!response || response.statusCode >= 400) return callback(new Error(`HTTP error ${response ? response.statusCode : "?"}`));
-        if (typeof body !== "object" || body === null) return callback(new Error("Неожиданный ответ Steam (не JSON) - возможно аккаунт не авторизован или страница требует входа"));
+        // ВАЖНО: steamcommunity сам разбирает JSON если options.json=true и кладёт объект в response.body,
+        // а аргумент body может быть строкой - проверяем оба варианта
+        const parsed = (body && typeof body === "object") ? body
+            : ((response.body && typeof response.body === "object") ? response.body
+                : (() => { try { return JSON.parse(body); } catch (e) { return null; } })());
+
+        if (parsed === null || typeof parsed !== "object") return callback(new Error("Неожиданный ответ Steam (не JSON) - возможно аккаунт не авторизован или страница требует входа"));
 
         // Steam возвращает success:true либо success:false + сообщение о причине
-        if (body.success) return callback(null);
+        if (parsed.success) return callback(null);
 
-        const reason = body.message || (typeof body === "object" ? JSON.stringify(body).slice(0, 200) : String(body));
+        const reason = parsed.message || (typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed));
 
         // Расшифровываем частые причины отказа для групп
         let hint = "";
@@ -127,50 +136,47 @@ module.exports.comment = async function(dest, quotes, community, callback) {
     // Выбираем случайный комментарий из списка
     const quote = randomstring(quotes);
 
-    // Группы комментируем собственной функцией с проверкой ответа Steam (см. начало файла)
+    // Группы комментируем собственной функцией с проверкой ответа Steam (см. начало файла).
+    // Публикуем сразу; если Steam отказал из-за прав - при включенном autoJoinGroups
+    // автоматически вступаем в группу и повторяем публикацию один раз.
     if (dest.type == "group") {
         const gid64 = dest.processed;
 
-        // Пред-проверка прав на публикацию (без отправки текста). Если прав нет -
-        // при включенном autoJoinGroups пробуем вступить в группу и проверить снова.
-        const precheck = await new Promise((resolve) => checkGroupPostingRights(gid64, community, (err, canPost, reason) => resolve({ err, canPost, reason })));
+        global.logger("info", `Commenting on 'group' '${gid64}': ${quote.split("\n")[0]}`, false, false, global.logger.animation("loading"));
 
-        if (!precheck.err && !precheck.canPost) {
-            global.logger("warn", `Группа '${gid64}': Steam не даёт писать комментарии (${precheck.reason}).`);
+        const firstErr = await new Promise((resolve) => postGroupCommentChecked(gid64, quote, community, resolve));
 
-            const autoJoin = require("../../config.json").autoJoinGroups !== false;
+        if (!firstErr) return callback(null, quote);
 
-            if (autoJoin) {
-                global.logger("info", `Пробую вступить в группу '${gid64}' автоматически...`);
+        const isRightsError = String(firstErr.message || firstErr).includes("do not allow you to add comments");
+        const autoJoin = require("../../config.json").autoJoinGroups !== false;
 
-                const joinErr = await new Promise((resolve) => tryJoinGroup(gid64, community, resolve));
+        // Пробуем спасти публикацию авто-вступлением только при отказе по правам
+        if (isRightsError && autoJoin) {
+            global.logger("warn", `Группа '${gid64}' отказала в правах - пробую вступить автоматически...`);
 
-                if (joinErr) {
-                    return callback(new Error(`Не удалось вступить в группу: ${joinErr}. Причина отказа: ${precheck.reason}`), null);
-                }
+            const joinErr = await new Promise((resolve) => tryJoinGroup(gid64, community, resolve));
 
-                // Даём Steam секунду применить членство и проверяем права заново
+            if (joinErr) {
+                global.logger("warn", `Не удалось вступить в группу '${gid64}': ${joinErr}`);
+            } else {
+                // Даём Steam секунду применить членство и повторяем публикацию
                 await new Promise((r) => setTimeout(r, 1000));
 
-                const recheck = await new Promise((resolve) => checkGroupPostingRights(gid64, community, (err, canPost2, reason2) => resolve({ err, canPost: canPost2, reason: reason2 })));
+                const retryErr = await new Promise((resolve) => postGroupCommentChecked(gid64, quote, community, resolve));
 
-                if (!recheck.err && !recheck.canPost) {
-                    return callback(new Error(`Вступил в группу '${gid64}', но Steam всё равно запрещает комментарии (${recheck.reason}). Возможно группа требует одобрения заявки модератором, либо аккаунт ограничен (нет покупок в Steam).`), null);
+                if (!retryErr) {
+                    global.logger("info", `Вступление в группу '${gid64}' помогло - комментарий опубликован!`);
+                    return callback(null, quote);
                 }
 
-                global.logger("info", `Вступление в группу '${gid64}' помогло - права на комментарии получены!`);
-            } else {
-                return callback(new Error(`Нет прав на комментарии в группе '${gid64}' (${precheck.reason}). Авто-вступление выключено (autoJoinGroups=false) - вступите вручную.`), null);
+                global.logger("warn", `После вступления Steam всё равно отказал '${gid64}': ${retryErr}. Возможно группа требует одобрения заявки модератором, либо аккаунт ограничен (нет покупок в Steam).`);
+                return callback(retryErr, null);
             }
         }
 
-        global.logger("info", `Commenting on 'group' '${gid64}': ${quote.split("\n")[0]}`, false, false, global.logger.animation("loading"));
-
-        return postGroupCommentChecked(gid64, quote, community, (err) => {
-            if (err) global.logger("warn", `Failed to comment on 'group' '${gid64}'! ${err}`);
-
-            callback(err, quote);
-        });
+        global.logger("warn", `Failed to comment on 'group' '${gid64}'! ${firstErr}`);
+        return callback(firstErr, null);
     }
 
     // Определяем функцию и аргументы в зависимости от типа адресата
