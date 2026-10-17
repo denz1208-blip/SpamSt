@@ -3,8 +3,9 @@
  * Project: SpamSt
  *
  * Ядро бота: логин в Steam и цикл комментирования.
- * Поддерживает запуск из интерфейса (menuMode): по завершении управления меню,
- * а также повтор цикла комментирования (config.loopRepeats / config.loopDelay).
+ * Поддержка мультиаккаунтов: комментарии пишутся со всех аккаунтов из accounts.json,
+ * каждый аккаунт - отдельная сессия (отдельный логин/2FA/токен), циклы идут параллельно.
+ * Поддерживает запуск из интерфейса (menuMode) и повтор цикла (config.loopRepeats / config.loopDelay).
  */
 
 const logger         = require("output-logger");
@@ -18,11 +19,194 @@ const pkgVersion    = (() => { try { return require("../package.json").version; 
 const { ask }       = require("./ui.js");
 
 let config;
-let logininfo;
 
 
 /**
- * Запускает процесс комментирования: логин, загрузка адресатов и цикл комментариев
+ * Запускает процесс комментирования для ОДНОГО аккаунта: логин по токену и цикл комментариев.
+ * Адресаты и комментарии уже загружены заранее (общие для всех аккаунтов).
+ * @param {{accountName: string, password: string, sharedSecret?: string}} acc Данные аккаунта
+ * @param {Array<object>} destinations Список адресатов (общий для всех аккаунтов)
+ * @param {Array<string>} quotes Список комментариев (общий для всех аккаунтов)
+ * @param {boolean} menuMode Если true - не завершать процесс после окончания (управление через интерфейс)
+ * @returns {Promise<boolean>} true если аккаунт успешно отработал весь цикл
+ */
+async function runAccount(acc, destinations, quotes, menuMode) {
+    const tag       = acc.accountName;
+    const bot       = new SteamUser({ renewRefreshTokens: true });
+    const community = new SteamCommunity();
+
+    let session;
+
+    /**
+     * Пытается залогинить аккаунт
+     */
+    async function login() {
+        logger("info", `[${tag}] Logging in...`, false, false);
+
+        // Генерируем auth code из sharedSecret если он предоставлен
+        if (acc.sharedSecret) {
+            logger("info", `[${tag}] Found sharedSecret, generating AuthCode...`);
+            acc.steamGuardCode = SteamTotp.generateAuthCode(acc.sharedSecret);
+        }
+
+        session     = new (require("./sessions/sessionHandler.js"))(bot, acc.accountName, 0, acc);
+        const token = await session.getToken();
+
+        if (!token) {
+            logger("error", `[${tag}] Не удалось получить токен входа - аккаунт пропущен.`);
+            return;
+        }
+
+        bot.logOn({ refreshToken: token });
+    }
+
+    login();
+
+    bot.on("loggedOn", () => {
+        logger("info", `[${tag}] Account logged in!`);
+    });
+
+    // Устанавливаем cookies и запускаем цикл комментирования
+    const commentingDone = new Promise((resolve) => {
+        bot.on("webSession", async (sessionID, cookies) => {
+            community.setCookies(cookies);
+
+            // Игровые сессии если включено
+            if (config.playingGames.length > 0) bot.gamesPlayed(config.playingGames);
+
+            const loopRepeats = Math.max(1, parseInt(config.loopRepeats) || 1); // Сколько раз пройтись циклом по всем адресатам
+            const loopDelay   = Math.max(config.commentdelay, parseInt(config.loopDelay) || 0); // Пауза между полными циклами
+
+            logger("", "", true);
+            logger("", `> [${tag}] Начинаю комментирование через 3 секунды (${config.commentdelay}ms delay)!`, true);
+            if (loopRepeats > 1) logger("", `> [${tag}] Loop mode ON: ${loopRepeats} проход(ов) цикла с паузой ${loopDelay}ms!`, true);
+
+            // Ждём 3 секунды чтобы все аккаунты успели залогиниться перед стартом
+            await new Promise((r) => setTimeout(r, 3000));
+
+            const { comment } = require("./helpers/comment.js");
+
+            const failed = [];
+            let http429err = false;
+            let totalSent  = 0;
+            const totalAll = destinations.length * loopRepeats;
+
+            /**
+             * Один проход цикла: комментирует все адреса по одному разу
+             * @param {number} repeatIndex Номер текущего прохода цикла (с 1)
+             * @returns {Promise<void>} Резолвится когда весь цикл завершится
+             */
+            function runCycle(repeatIndex) {
+                return new Promise((cycleResolve) => {
+                    destinations.forEach((e, i) => {
+                        setTimeout(() => {
+                            if (http429err) return cycleResolve(); // Блок дальнейших выполнений при кулдауне
+
+                            comment(e, quotes, community, (err) => {
+                                if (err) {
+                                    failed.push(`${tag}: ${e.raw}`);
+
+                                    if (String(err).includes("HTTP error 429") || String(err).includes("You've been posting too frequently, and can't make another post right now")) {
+                                        logger("", "", true);
+                                        logger("error", `[${tag}] Cooldown error detected! Aborting as all other comments from this IP will fail too! Please wait before trying again.`);
+
+                                        http429err = true;
+
+                                        return cycleResolve();
+                                    }
+                                }
+
+                                totalSent++;
+
+                                // Пересчитываем общий прогресс (по всем аккаунтам)
+                                global.updateProgress();
+
+                                // Последний адресат этого прохода цикла?
+                                if (i + 1 == destinations.length) {
+                                    if (repeatIndex < loopRepeats && !http429err) {
+                                        logger("info", `[${tag}] Finished cycle ${repeatIndex}/${loopRepeats}! Waiting ${loopDelay}ms before next cycle...`);
+
+                                        setTimeout(() => {
+                                            runCycle(repeatIndex + 1).then(cycleResolve);
+                                        }, loopDelay);
+                                    } else {
+                                        cycleResolve();
+                                    }
+                                }
+                            });
+                        }, config.commentdelay * (i + 1)); // + 1 чтобы отложить и первую итерацию
+                    });
+                });
+            }
+
+            // Запускаем цикл комментирования (проходится loopRepeats раз)
+            runCycle(1).then(() => {
+                logger("info", `[${tag}] Finished commenting!\n`);
+
+                if (failed.length > 0) logger("info", `Failed for ${tag}: \n` + failed.join("\n"));
+
+                bot.logOff();
+                resolve(!http429err);
+            });
+        });
+    });
+
+    // Отвечает afkMessage если включено в конфиге
+    bot.chat.on("friendMessage", (msg) => {
+        const message = msg.message_no_bbcode;
+        const steamID = msg.steamid_friend;
+        const steamID64 = new SteamID(String(steamID)).getSteamID64();
+        const username = bot.users[steamID64] ? bot.users[steamID64].player_name : steamID64;
+
+        logger("info", `[${tag}] Friend message from '${username}' (${steamID64}): ${message}`);
+
+        if (config.afkMessage.length > 0) {
+            logger("info", `[${tag}] Responding with: ${config.afkMessage}`);
+
+            bot.chat.sendFriendMessage(steamID, config.afkMessage);
+        }
+    });
+
+    // Эмитится когда refreshToken авто-обновлен SteamUser
+    bot.on("refreshToken", (newToken) => {
+        logger("info", `[${tag}] SteamUser auto renewed this refresh token, updating database entry...`);
+
+        session._saveTokenToStorage(newToken);
+    });
+
+    // Обрабатывает ошибку логина
+    bot.on("error", (err) => {
+        // Инвалидируем токен чтобы получить новую сессию если ошибка вызвана невалидным refreshToken
+        if (err.eresult == EResult.InvalidPassword || err.eresult == EResult.AccessDenied || err == "Error: InvalidSignature") {
+            logger("debug", `[${tag}] Token login error: invalidating stored token, retrying...`);
+
+            if (err.eresult == EResult.AccessDenied) logger("warn", `[${tag}] Detected an AccessDenied login error! This is usually caused by an invalid login token. Deleting it, please re-submit your Steam Guard code.`);
+
+            session.invalidateTokenInStorage();
+
+            setTimeout(() => login(), 5000);
+            return;
+        }
+
+        logger("error", `[${tag}] Failed to log in! ${err}`);
+    });
+
+    return commentingDone;
+}
+
+
+/**
+ * Загружает данные аккаунтов: список из accounts.json (мультиаккаунты),
+ * с автоматической миграцией из старого logininfo.json если accounts.json нет.
+ * @returns {Array<{accountName: string, password: string, sharedSecret?: string}>} Список аккаунтов
+ */
+function loadAccountsInfo() {
+    return require("./accounts.js").loadAccounts();
+}
+
+
+/**
+ * Запускает процесс комментирования: проверка данных, логин всех аккаунтов и цикл комментариев
  * @param {boolean} menuMode Если true - не завершать процесс после окончания (управление через интерфейс)
  */
 async function startCommenting(menuMode = false) {
@@ -35,9 +219,6 @@ async function startCommenting(menuMode = false) {
     });
 
     global.logger = logger; // Делаем logger доступным в helper-модулях
-
-    const bot       = new SteamUser({ renewRefreshTokens: true });
-    const community = new SteamCommunity();
 
     // Печатаем стартовые сообщения
     logger("", "\n", true);
@@ -53,198 +234,74 @@ async function startCommenting(menuMode = false) {
         return false;
     }
 
-    let session;
+    // Мультиаккаунты: читаем accounts.json (при отсутствии мигрирует из logininfo.json)
+    const accounts = loadAccountsInfo();
 
-    /**
-     * Пытается залогинить аккаунт
-     */
-    async function login() {
-        logger("info", "Logging in...", false, false);
+    if (accounts.length == 0) {
+        logger("error", "No Steam accounts found! Add one via the interface (menu item 7 -> add) or fill in accounts.json. Aborting...");
 
-        // Генерируем auth code из sharedSecret если он предоставлен
-        if (logininfo.sharedSecret) {
-            logger("info", "Found sharedSecret, generating AuthCode and adding it to logOnOptions...");
-            logininfo.steamGuardCode = SteamTotp.generateAuthCode(logininfo.sharedSecret);
-        }
-
-        session     = new (require("./sessions/sessionHandler.js"))(bot, logininfo.accountName, 0, logininfo);
-        const token = await session.getToken();
-
-        if (!token) {
-            if (!menuMode) process.exit(1);
-            return;
-        }
-
-        bot.logOn({ refreshToken: token });
+        if (!menuMode) process.exit(1);
+        return false;
     }
 
-    login();
+    logger("info", `Found ${accounts.length} account(s): ${accounts.map((a) => a.accountName).join(", ")}`);
 
-    bot.on("loggedOn", () => {
-        logger("", "", true);
-        logger("info", "Account logged in!");
-    });
+    // Загружаем адресаты и комментарии один раз (общие для всех аккаунтов)
+    logger("info", "Loading comment destinations from destinations.txt...", false, true, logger.animation("loading"));
 
-    // Устанавливаем cookies и запускаем загрузку адресатов
-    bot.on("webSession", async (sessionID, cookies) => {
-        community.setCookies(cookies);
+    const { loadDestinations } = require("./helpers/loadDestinations.js");
+    const destinations = await loadDestinations(config.destinationResolveDelay);
 
-        // Игровые сессии если включено
-        if (config.playingGames.length > 0) bot.gamesPlayed(config.playingGames);
+    if (destinations.length == 0) {
+        logger("error", "No valid destinations found to comment on! Exiting...");
 
-        logger("info", "Loading comment destinations from destinations.txt...", false, true, logger.animation("loading"));
+        if (!menuMode) process.exit(1);
+        return false;
+    }
 
-        const { loadDestinations } = require("./helpers/loadDestinations.js");
-        const destinations = await loadDestinations(config.destinationResolveDelay);
+    const { getQuote } = require("./helpers/getQuote.js");
 
-        if (destinations.length == 0) {
-            logger("error", "No valid destinations found to comment on! Exiting...");
+    const quotes = await new Promise((resolve) => getQuote((err, q) => resolve(err ? [] : q)));
 
-            if (!menuMode) process.exit(1);
-            return;
-        }
+    if (quotes.length == 0) {
+        logger("error", "No comments found in comments.txt! Please provide messages I can choose from in comments.txt! Exiting...");
 
-        const { getQuote } = require("./helpers/getQuote.js");
+        if (!menuMode) process.exit(1);
+        return false;
+    }
 
-        getQuote((err, quotes) => {
+    const loopRepeats = Math.max(1, parseInt(config.loopRepeats) || 1);
 
-            // Проверяем, что комментарии предоставлены
-            if (err || quotes.length == 0) {
-                logger("error", "No comments found in comments.txt! Please provide messages I can choose from in comments.txt! Exiting...");
+    // Show ready message
+    logger("", "", true);
+    logger("", "*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*", true);
+    logger("", `> Accounts: ${accounts.map((a) => a.accountName).join(", ")} (${accounts.length})`, true);
+    logger("", `> Found ${destinations.length} destinations in config!`, true);
+    logger("", `> Loaded ${quotes.length} quotes from comments.txt!`, true);
+    logger("", `> Starting to comment in 3 seconds with ${config.commentdelay}ms delay!`, true);
+    if (loopRepeats > 1) logger("", `> Loop mode ON: repeating the whole cycle ${loopRepeats} time(s)!`, true);
+    logger("", "*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*", true);
+    logger("", "", true);
 
-                if (!menuMode) process.exit(1);
-                return;
-            }
+    // Общий progress bar по всем аккаунтам
+    const totalAll = destinations.length * loopRepeats * accounts.length;
+    let totalSent  = 0;
 
-            const loopRepeats = Math.max(1, parseInt(config.loopRepeats) || 1); // Сколько раз пройтись циклом по всем адресатам
-            const loopDelay   = Math.max(config.commentdelay, parseInt(config.loopDelay) || 0); // Пауза между полными циклами
+    logger.createProgressBar();
+    global.updateProgress = () => {
+        totalSent++;
+        logger.setProgressBar(totalSent / totalAll * 100);
+    };
 
-            // Show ready message
-            logger("", "", true);
-            logger("", "*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*", true);
-            logger("", `> Logged in as ${logininfo.accountName}!`, true);
-            logger("", `> Found ${destinations.length} destinations in config!`, true);
-            logger("", `> Loaded ${quotes.length} quotes from comments.txt!`, true);
-            logger("", `> Starting to comment in 5 seconds with ${config.commentdelay}ms delay!`, true);
-            if (loopRepeats > 1) logger("", `> Loop mode ON: repeating the whole cycle ${loopRepeats} time(s) with ${loopDelay}ms pause between cycles!`, true);
-            logger("", "*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*", true);
-            logger("", "", true);
+    // Стартуем все аккаунты параллельно (каждый со своей сессией и 2FA при необходимости)
+    const results = await Promise.all(accounts.map((acc) => runAccount(acc, destinations, quotes, menuMode)));
 
-            // Создаем progress bar когда ниже стартует цикл
-            setTimeout(() => logger.createProgressBar(), config.commentdelay);
+    logger("info", `All accounts finished! Success: ${results.filter(Boolean).length}/${accounts.length}\n`);
 
-            const { comment } = require("./helpers/comment.js");
-
-            const failed = [];
-            let http429err = false;
-            let totalSent  = 0;
-            const totalAll = destinations.length * loopRepeats;
-
-            /**
-             * Один проход цикла: комментирует все адреса по одному разу
-             * @param {number} repeatIndex Номер текущего прохода цикла (с 1)
-             * @returns {Promise<void>} Резолвится когда весь цикл завершится
-             */
-            function runCycle(repeatIndex) {
-                return new Promise((resolve) => {
-                    destinations.forEach((e, i) => {
-                        setTimeout(() => {
-                            if (http429err) return resolve(); // Блок дальнейших выполнений при кулдауне
-
-                            comment(e, quotes, community, (err) => {
-                                if (err) {
-                                    failed.push(e.raw);
-
-                                    if (String(err).includes("HTTP error 429") || String(err).includes("You've been posting too frequently, and can't make another post right now")) {
-                                        logger("", "", true);
-                                        logger("error", "Cooldown error detected! Aborting as all other comments from this IP will fail too! Please wait before trying again.\n        Exiting in 5 seconds...", true);
-
-                                        http429err = true;
-                                        if (!menuMode) setTimeout(() => process.exit(1), 5000);
-
-                                        return resolve();
-                                    }
-                                }
-
-                                totalSent++;
-
-                                // Пересчитываем прогресс и обновляем progress bar
-                                logger.setProgressBar(totalSent / totalAll * 100);
-
-                                // Последний адресат этого прохода цикла?
-                                if (i + 1 == destinations.length) {
-                                    if (repeatIndex < loopRepeats && !http429err) {
-                                        logger("info", `Finished cycle ${repeatIndex}/${loopRepeats}! Waiting ${loopDelay}ms before next cycle...`);
-
-                                        setTimeout(() => {
-                                            runCycle(repeatIndex + 1).then(resolve);
-                                        }, loopDelay);
-                                    } else {
-                                        resolve();
-                                    }
-                                }
-                            });
-                        }, config.commentdelay * (i + 1)); // + 1 чтобы отложить и первую итерацию
-                    });
-                });
-            }
-
-            // Запускаем цикл комментирования (проходится loopRepeats раз)
-            runCycle(1).then(() => {
-                logger("info", "Finished commenting!\n");
-
-                if (failed.length > 0) {
-                    logger("info", "Failed: \n" + failed.join("\n"));
-                    logger("", "", true);
-                }
-
-                if (!menuMode) {
-                    logger("info", "Exiting in 5 seconds...");
-                    setTimeout(() => process.exit(0), 5000);
-                }
-            });
-        });
-    });
-
-    // Отвечает afkMessage если включено в конфиге
-    bot.chat.on("friendMessage", (msg) => {
-        const message = msg.message_no_bbcode;
-        const steamID = msg.steamid_friend;
-        const steamID64 = new SteamID(String(steamID)).getSteamID64();
-        const username = bot.users[steamID64].player_name;
-
-        logger("info", `Friend message from '${username}' (${steamID64}): ${message}`);
-
-        if (config.afkMessage.length > 0) {
-            logger("info", "Responding with: " + config.afkMessage);
-
-            bot.chat.sendFriendMessage(steamID, config.afkMessage);
-        }
-    });
-
-    // Эмитится когда refreshToken авто-обновлен SteamUser
-    bot.on("refreshToken", (newToken) => {
-        logger("info", "SteamUser auto renewed this refresh token, updating database entry...");
-
-        session._saveTokenToStorage(newToken);
-    });
-
-    // Обрабатывает ошибку логина
-    bot.on("error", (err) => {
-        // Инвалидируем токен чтобы получить новую сессию если ошибка вызвана невалидным refreshToken
-        if (err.eresult == EResult.InvalidPassword || err.eresult == EResult.AccessDenied || err == "Error: InvalidSignature") {
-            logger("debug", "Token login error: Calling SessionHandler's _invalidateTokenInStorage() function to get a new session when retrying this login attempt");
-
-            if (err.eresult == EResult.AccessDenied) logger("warn", "Detected an AccessDenied login error! This is usually caused by an invalid login token. Deleting login token, please re-submit your Steam Guard code.");
-
-            session.invalidateTokenInStorage();
-
-            setTimeout(() => login(), 5000);
-            return;
-        }
-
-        logger("error", `Failed to log in! ${err}`);
-    });
+    if (!menuMode) {
+        logger("info", "Exiting in 5 seconds...");
+        setTimeout(() => process.exit(0), 5000);
+    }
 
     return true;
 }
@@ -259,7 +316,56 @@ function saveConfig() {
 
 
 /**
- * Интерфейс программы: меню, написание комментариев в цикле и запуск бота
+ * Меню управления аккаунтами (мультиаккаунты): показать / добавить / удалить
+ * @returns {Promise<void>}
+ */
+async function accountsMenu() {
+    const ui = require("./ui.js");
+    const { loadAccounts, upsertAccount, removeAccount } = require("./accounts.js");
+
+    /* eslint-disable no-constant-condition */
+    while (true) {
+        const list = loadAccounts();
+
+        console.log("");
+        console.log(`*-=-=-=-=-=- АККАУНТЫ (${list.length}) -=-=-=-*`);
+        list.forEach((a, i) => console.log(`   ${i + 1}. ${a.accountName}${a.sharedSecret ? " [2FA-ключ]" : ""}`));
+        console.log("> a. Добавить / обновить аккаунт");
+        console.log("> d. Удалить аккаунт");
+        console.log("> b. Назад в главное меню");
+        console.log("*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*");
+
+        const choice = await ui.ask("Выбор: ");
+
+        if (choice == "b" || choice == "") return;
+
+        if (choice == "a") {
+            const name = await ui.ask("Логин Steam (accountName): ");
+
+            if (!name) {
+                console.log("> Пустое имя - отменено.");
+                continue;
+            }
+
+            const pass = await ui.ask("Пароль (или 'qrcode' для входа по QR без пароля): ");
+            const secret = await ui.ask("sharedSecret из Steam Guard (Enter = не использовать, обычный ввод кода): ");
+
+            upsertAccount({ accountName: name, password: pass || "", sharedSecret: secret || "" });
+            console.log(`> Аккаунт '${name}' сохранен в accounts.json!`);
+            console.log("> При следующем запуске комментирования будет запрошен Steam Guard код (или использован QR/sharedSecret),");
+            console.log("> после чего токен сохранится и вводить пароль/код повторно не потребуется.");
+        } else if (choice == "d") {
+            const name = await ui.ask("Имя аккаунта для удаления: ");
+
+            if (removeAccount(name)) console.log(`> Аккаунт '${name}' удален!`);
+            else console.log("> Аккаунт не найден!");
+        }
+    }
+}
+
+
+/**
+ * Интерфейс программы: меню, написание комментариев в цикле, аккаунты и запуск бота
  */
 async function runInterface() {
     const fs = require("fs");
@@ -394,7 +500,12 @@ async function runInterface() {
 
                 break;
             }
-            case "7": { // Запустить комментирование
+            case "7": { // Аккаунты (мультиаккаунты)
+                await accountsMenu();
+
+                break;
+            }
+            case "8": { // Запустить комментирование
                 ui.close(); // Освобождаем stdin для possible 2FA-ввода внутри sessionHandler
 
                 console.log("> Запускаю комментирование... (по завершении вернитесь в меню кнопкой Enter)");
@@ -405,7 +516,7 @@ async function runInterface() {
 
                 break;
             }
-            case "8": { // Обновление с GitHub
+            case "9": { // Обновление с GitHub
                 const confirm = await ui.ask("> Обновить программу до свежей версии с GitHub? Ваши настройки, комментарии и адресаты сохранятся. (y/N): ");
 
                 if (confirm.toLowerCase() != "y") {
@@ -426,7 +537,7 @@ async function runInterface() {
 
                 break;
             }
-            case "9": // Выход
+            case "10": // Выход
                 ui.close();
                 console.log("> Пока!");
                 process.exit(0);
@@ -466,13 +577,6 @@ module.exports.run = async () => {
         config = require("../config.json");
     } catch (err) {
         console.log(`Failed to read config.json! Did you make a syntax mistake?\n        ${err}\n        Exiting...`);
-        process.exit(1);
-    }
-
-    try {
-        logininfo = require("../logininfo.json");
-    } catch (err) {
-        console.log(`Failed to read logininfo.json! Did you make a syntax mistake?\n        ${err}\n        Exiting...`);
         process.exit(1);
     }
 

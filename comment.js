@@ -75,10 +75,14 @@ module.exports.run = async () => {
         process.exit(1);
     }
 
+    // Мультиаккаунты: берём первый аккаунт из accounts.json (миграция из logininfo.json выполняется автоматически)
     try {
-        logininfo = require("../logininfo.json");
+        const accounts = require("./src/accounts.js").loadAccounts();
+
+        if (accounts.length == 0) throw new Error("accounts.json is empty! Add an account via the interface (menu item 7).");
+        logininfo = accounts[0];
     } catch (err) {
-        logger("error", `Failed to read logininfo.json! Did you make a syntax mistake?\n        Please follow the syntax of the template exactly.\n        ${err}\n        Exiting...`, true);
+        logger("error", `Failed to read accounts! Did you make a syntax mistake in accounts.json?\n        Please follow the syntax of the template exactly.\n        ${err}\n        Exiting...`, true);
         process.exit(1);
     }
 

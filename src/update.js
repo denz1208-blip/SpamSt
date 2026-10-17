@@ -21,6 +21,8 @@ const ZIP_URL  = `${REPO_URL}/archive/refs/heads/main.zip`;
 const KEEP_FILES = [
     "config.json",
     "logininfo.json",
+    "accounts.json",
+    "tokens.json",
     "comments.txt",
     "destinations.txt",
     "tokenStorage.db",
