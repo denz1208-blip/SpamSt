@@ -70,33 +70,73 @@ function checkGroupPostingRights(gid64, community, callback) {
 function tryJoinGroup(groupName, gid64, community, callback) {
     if (!groupName) return callback(new Error("неизвестно текстовое имя группы"));
 
-    const options = {
+    // Сначала GET-запросом открываем страницу группы: Steam отдаёт в куки СВОЙ sessionid,
+    // а в HTML - <input name="sessionid">. Используем именно его (как это делает браузер при
+    // нажатии кнопки "Join") - это исключает "Missing or invalid form session key".
+    community.httpRequestGet({
         uri: `https://steamcommunity.com/groups/${groupName}`,
-        form: {
-            action: "join",
-            acceptage: "agree",
-            sessionid: community.getSessionID(),
-        },
-        headers: {
-            "Referer": `https://steamcommunity.com/groups/${groupName}`,
-        },
-    };
-
-    community.httpRequestPost(options, (err, response, body) => {
+        headers: { "Referer": "https://steamcommunity.com/" },
+    }, null, (err, response, body) => {
         if (err) return callback(err);
-        if (!response || response.statusCode >= 400) return callback(new Error(`HTTP error ${response ? response.statusCode : "?"}`));
-        // Steam не возвращает явного JSON при вступлении - проверяем страницу:
-        // если там есть кнопка "Leave"/"Покинуть" или запись участника - мы в группе.
-        // Если страница содержит ошибку приватности/инвайта - пробрасываем её как ошибку.
-        const text = String(body || "");
-        if (/leavegroup|leave group|покинуть/i.test(text)) return callback(null);
-        if (/this group is private|requires approval|invite-only|закрыт/i.test(text)) {
-            return callback(new Error("группа закрыта для свободного вступления (требует приглашения/одобрения модератора)"));
+
+        let sid = null;
+
+        // 1) sessionid из Set-Cookie ответа (jar steamcommunity сам сохранит его для POST)
+        const setCookie = response && (response.headers["set-cookie"] || response.getHeaders && response.getHeaders()["set-cookie"]);
+        if (Array.isArray(setCookie)) {
+            for (const c of setCookie) {
+                const m = String(c).match(/(?:^|[;\s])sessionid=([^;\s]+)/);
+                if (m) sid = decodeURIComponent(m[1]);
+            }
         }
-        // Не нашли ни подтверждения, ни явной ошибки - считаем запрос выполненным,
-        // дальше решение примет повторная публикация комментария
-        callback(null);
-    }, "steamcommunity");
+
+        // 2) запасной вариант - значение из формы на странице
+        if (!sid && body) {
+            const m = String(body).match(/name="sessionid"\s+value="([^"]+)"/i) || String(body).match(/g_sessionID\s*=\s*"([^"]+)"/);
+            if (m) sid = m[1];
+        }
+
+        // 3) совсем запасной - тот, что уже есть в куках библиотеки (https-jar!)
+        if (!sid) sid = community.getSessionID("https://steamcommunity.com");
+
+        const options = {
+            uri: `https://steamcommunity.com/groups/${groupName}`,
+            form: {
+                action: "join",
+                acceptage: "agree",
+                sessionid: sid,
+            },
+            headers: {
+                "Referer": `https://steamcommunity.com/groups/${groupName}`,
+                "Origin": "https://steamcommunity.com",
+            },
+        };
+
+        community.httpRequestPost(options, (err2, response2, body2) => {
+            if (err2) return callback(err2);
+            if (!response2 || response2.statusCode >= 400) return callback(new Error(`HTTP error ${response2 ? response2.statusCode : "?"}`));
+
+            // Steam не возвращает явного JSON при вступлении - проверяем страницу ответа:
+            // если там есть кнопка "Leave"/"Покинуть" или запись участника - мы в группе.
+            const text = String(body2 || (response2.body ? String(response2.body) : ""));
+
+            // Проверяем и исходный ответ POST, и свежую GET-страницу группы ниже
+            const joinedInResponse = /leavegroup|leave group|покинуть/i.test(text);
+            if (joinedInResponse) return callback(null);
+
+            if (/this group is private|requires approval|invite-only|закрыт/i.test(text)) {
+                return callback(new Error("группа закрыта для свободного вступления (требует приглашения/одобрения заявки модератором)"));
+            }
+
+            // Не уверены - перечитаем страницу группы: наличие кнопки выхода = участник
+            community.httpRequestGet({ uri: `https://steamcommunity.com/groups/${groupName}` }, null, (err3, res3, body3) => {
+                if (err3) return callback(null); // считаем запрос выполненным, решение примет повторная публикация
+                const t3 = String(body3 || "");
+                if (/leavegroup|leave group|покинуть/i.test(t3)) return callback(null);
+                callback(new Error("вступление не подтверждено (страница группы не показывает членство - возможно группа по заявке/инвайту)"));
+            });
+        }, "steamcommunity");
+    });
 }
 
 
@@ -109,12 +149,13 @@ function tryJoinGroup(groupName, gid64, community, callback) {
  * @param {Function} callback Вызывается как callback(err)
  */
 function postGroupCommentChecked(gid64, quote, community, callback) {
+    // sessionid из https-jar (настоящие куки сессии) - см. комментарий в tryJoinGroup
     const options = {
         uri: `https://steamcommunity.com/comment/Clan/post/${gid64}/-1/`,
         form: {
             comment: quote,
             count: 6,
-            sessionid: community.getSessionID(),
+            sessionid: community.getSessionID("https://steamcommunity.com"),
         },
         headers: {
             "X-Requested-With": "XMLHttpRequest",

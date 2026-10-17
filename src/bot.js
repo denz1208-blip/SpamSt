@@ -81,6 +81,24 @@ async function runAccount(acc, destinations, quotes, menuMode) {
         bot.on("webSession", async (sessionID, cookies) => {
             community.setCookies(cookies);
 
+            // ВАЖНО: steamcommunity берёт sessionid для AJAX-запросов из cookie-jar'а.
+            // setCookies() кладёт куки только в https-jar, а getSessionID() по умолчанию
+            // читает http-jar - и если там пусто, ГЕНЕРИРУЕТ НОВЫЙ СЛУЧАЙНЫЙ sessionid,
+            // который Steam не знает. Это и давало "Missing or invalid form session key"
+            // при авто-вступлении в группу. Принудительно инициализируем sessionid из
+            // настоящих куки сессии (то же значение, что реально использует браузер).
+            try {
+                const RequestLib = require("request");
+                const sidCookie = (Array.isArray(cookies) ? cookies.join("; ") : String(cookies || "")).match(/(?:^|[;\s])sessionid=([^;\s]+)/);
+                if (sidCookie) {
+                    // Сначала читаем https-jar (setCookies положил туда настоящие куки сессии) -
+                    // если sessionid там есть, getSessionID вернёт именно его и ничего не сгенерирует.
+                    let sid = community.getSessionID("https://steamcommunity.com");
+                    // Кладем это же значение в http-jar, чтобы последующие getSessionID() тоже отдавали его
+                    community._jar.setCookie(RequestLib.cookie(`sessionid=${encodeURIComponent(sid)}`), "http://steamcommunity.com");
+                }
+            } catch (e) { /* не критично - дальше используем то, что есть */ }
+
             // Игровые сессии если включено
             if (config.playingGames.length > 0) bot.gamesPlayed(config.playingGames);
 
