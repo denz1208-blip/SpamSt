@@ -1,67 +1,122 @@
 <div align="center" markdown=1>
-	<p align="center"><img width=45% src="https://3urobeat.com/comment-bot/steamLogo.png"></p>
-	<strong>Comment with a few clicks under a ton of steam profiles, groups, sharedfiles & discussions!</strong>
-	<br>See how to set up the bot and customize it below.<br>
-	<p></p>
+        <p align="center"><img width=45% src="https://3urobeat.com/comment-bot/steamLogo.png"></p>
+        <strong>Оставляйте комментарии в пару кликов под тысячами профилей, групп, мастерской и обсуждений Steam!</strong>
+        <br>Ниже вы найдёте подробную инструкцию по установке, настройке и запуску программы.<br>
+        <p></p>
 </div>
 
 <div align="center">
 
 [![nodejs](https://img.shields.io/badge/node.js-v16-brightgreen)](https://nodejs.org/)
-[![Star](https://img.shields.io/badge/-Give%20this%20repo%20a%20star!-yellow)](https://github.com/3urobeat/steam-mass-comment-bot)
-[![Steam Group](https://img.shields.io/badge/Steam%20Group-Join!-blue)](https://steamcommunity.com/groups/3urobeatGroup)
-[![Donate](https://img.shields.io/badge/Donate-%241-orange)](https://github.com/sponsors/3urobeat)
-<p align="center">Click on a badge to learn more.</p>
+[![Star](https://img.shields.io/badge/-Поставьте%20звезду%20репозиторию!-yellow)](https://github.com/3urobeat/steam-mass-comment-bot)
+[![Steam Group](https://img.shields.io/badge/Steam%20Группа-Вступить!-blue)](https://steamcommunity.com/groups/3urobeatGroup)
+<p align="center">Нажмите на значок, чтобы узнать больше.</p>
 
-<img src="./.github/img/demo.gif">
+<img src="./demo.gif">
 
 </div>
 
 &nbsp;
 
-## ✨ Introduction:
-This is a simple Steam Comment Bot to send comments with \*one\* account to \*many\* profiles, groups, sharedfiles or discussions.  
+## ✨ Введение:
+Это простой бот для массового оставления комментариев в Steam. Он отправляет комментарии с *одного* аккаунта в *множество* профилей, групп, предметов Мастерской (sharedfiles) или обсуждений.
 
-This project is a slimmed down version of my [steam-comment-service-bot](https://github.com/3urobeat/steam-comment-service-bot), for users only interested in regularly sending comments with one account to profiles of their friends.  
-If you need more features, please check it out instead.  
-It does way more besides acting as a comment service - it supports hundreds of accounts simultaneously, has advanced connection management features and is updated more regularly.
-
-&nbsp;
+Проект представляет собой облегчённую версию моего [steam-comment-service-bot](https://github.com/3urobeat/steam-comment-service-bot) — для пользователей, которым нужно лишь регулярно оставлять комментарии друзьям с одного аккаунта.
+Если вам нужно больше возможностей — используйте тот проект: он поддерживает сотни аккаунтов одновременно, имеет продвинутое управление соединениями и обновляется чаще.
 
 > [!WARNING]
-> I, 3urobeat (the developer), am not responsible and cannot be held liable for any action the operator/user of this bot uses it for.  
-> By using this application, you agree to using it responsibly!  
-  
-&nbsp;
-
-## 📝 Download & Setup:
-Click here: [Download](https://github.com/3urobeat/steam-mass-comment-bot/archive/master.zip)  
-Extract the zip and open the `steam-mass-comment-bot` folder.  
-  
-You need to have at least node.js version 16.0.0 installed: [Download](https://nodejs.org)  
-To check your version number if you already have node installed, type `node --version` in your console or terminal.  
+> Я, 3urobeat (разработчик), не несу ответственности и не могу быть привлечён к ответственности за любые действия оператора/пользователя этого бота.
+> Используя это приложение, вы соглашаетесь использовать его ответственно!
 
 &nbsp;
 
-**Login information:**  
+## 🖥️ Интерфейс программы:
+Начиная с текущей версии, программа запускается с **удобным консольным интерфейсом (меню)**. Больше не обязательно редактировать текстовые файлы вручную — всё можно делать прямо из меню:
 
-Open `logininfo.json` with a text editor and fill in the username and password of your account into the provided brackets.  
+```
+*-=-=-=-=-=-=-=-=-= МЕНЮ =-=-=-=-=-=-=-=-=-*
+> 1. Написать комментарий (можно в цикле - по одному за каждый проход)
+> 2. Показать список комментариев
+> 3. Удалить комментарий
+> 4. Очистить все комментарии
+> 5. Показать / изменить настройки (задержка, повтор цикла)
+> 6. Управление destinations.txt (адресаты)
+> 7. Запустить комментирование
+> 8. Выход
+*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*
+```
 
-If you want to login with a QR Code instead, then set the password to "qrcode".  
-Upon starting the bot a QR Code will be presented, which you can scan using your Steam Mobile App to login.
+**Написание комментариев в цикле:** выберите пункт `1`, укажите количество комментариев (например, `5`) и по очереди введите каждый текст — программа сама сохранит их в `comments.txt`. Пустая строка прерывает ввод.
 
-If you have a shared secret (used to "bypass" Steam Guard Code), you may provide it at `sharedSecret`.  
-If not, leave the brackets empty like default. This feature is entirely optional.
+**Циклическое комментирование:** в пункте `5` можно настроить `loopRepeats` (сколько раз цикл проходит по всему списку адресатов) и `loopDelay` (пауза в миллисекундах между полными циклами). Бот будет писать комментарии по кругу заданное число раз.
 
-Save and exit.
+Если вы хотите запустить бота **без интерфейса** (старое поведение — сразу логин и комментирование), используйте флаг `--no-ui`:
+
+```
+node index.js --no-ui
+```
 
 &nbsp;
 
-**Destinations:**  
-Open the text file `destinations.txt` with a text editor.  
-Put in the URLs, vanities or steamID64s of every profile/group/sharedfile/discussion you want to comment on, one destination per line.
+## 📝 Установка и подготовка:
 
-Example:
+### Шаг 1. Скачайте программу
+Скачайте архив с исходным кодом, нажав сюда: **[Download ZIP](https://github.com/3urobeat/steam-mass-comment-bot/archive/master.zip)**
+(или клонируйте репозиторий командой `git clone https://github.com/3urobeat/steam-mass-comment-bot.git`).
+
+Распакуйте ZIP-архив и откройте папку `steam-mass-comment-bot`.
+
+### Шаг 2. Установите Node.js
+Для работы программы необходим **Node.js версии не ниже 16.0.0**: [Скачать Node.js](https://nodejs.org/)
+
+Рекомендуется установить последнюю LTS-версию с официального сайта. Установщик для Windows запустится сам — просто нажимайте «Далее» до конца.
+
+Чтобы проверить, установлен ли Node.js и какая у вас версия, введите в консоли или терминале:
+
+```
+node --version
+```
+
+Если команда не найдена — Node.js не установлен, вернитесь к началу шага 2.
+
+### Шаг 3. Установите зависимости программы
+Откройте консоль (терминал) **в папке с программой** (см. инструкцию для Windows ниже в разделе «🚀 Запуск») и выполните:
+
+```
+npm install --omit=dev
+```
+
+Дождитесь завершения установки — будут скачаны все необходимые библиотеки (появится папка `node_modules`).
+Сообщения вида «x vulnerabilities» можно игнорировать — они неизбежны и не представляют для вас опасности.
+
+&nbsp;
+
+## ⚙️ Настройка:
+
+**Информация для входа (`logininfo.json`):**
+
+Откройте файл `logininfo.json` любым текстовым редактором (Блокнот, VS Code и т.п.) и заполните имя пользователя и пароль вашего аккаунта Steam в соответствующих скобках.
+
+Если вы хотите войти **по QR-коду**, вместо пароля пропишите `"qrcode"`. При запуске бота будет показан QR-код, который можно отсканировать через мобильное приложение Steam.
+
+Если у вас есть shared secret (позволяет «обойти» ввод кода Steam Guard), укажите его в поле `sharedSecret`. Если нет — оставьте поле пустым, как по умолчанию. Эта возможность полностью необязательна.
+
+Сохраните файл и закройте редактор.
+
+&nbsp;
+
+**Комментарии (`comments.txt`):**
+
+Здесь хранятся тексты комментариев, которые бот выбирает случайным образом. Проще всего добавлять их через **пункт 1 меню** (в том числе сразу много — в цикле). При желании можно отредактировать файл вручную: один комментарий на каждой строке.
+
+&nbsp;
+
+**Адресаты (`destinations.txt`):**
+
+Можно управлять через **пункт 6 меню**, либо открыть файл `destinations.txt` текстовым редактором.
+Впишите URL-адреса, vanity-имена или steamID64 каждого профиля/группы/предмета мастерской/обсуждения, куда нужно оставить комментарий — по одному адресу на строку.
+
+Пример:
 ```
 ID1
 steamcommunity.com/id/name2
@@ -71,60 +126,84 @@ https://steamcommunity.com/app/739630/discussions/0/1750150652078713439
 https://steamcommunity.com/sharedfiles/filedetails/?id=2496710411
 ```
 
+&nbsp;
+
+**Конфигурация (`config.json`):**
+
+Откройте `config.json` текстовым редактором (или меняйте значения через **пункт 5 меню** — изменения сохраняются автоматически):
+
+```json
+{
+    "destinationResolveDelay": 1000,
+    "commentdelay": 7500,
+    "playingGames": ["Idling", 440, 730],
+    "afkMessage": "Hi, I'm idling.",
+    "loopRepeats": 1,
+    "loopDelay": 0
+}
+```
+
+- `playingGames` — статус и игры, которые отображаются во время работы бота. Формат массива: `["текст кастомной игры", id игры, id игры]`.
+  Оставьте массив пустым (`"playingGames": []`), если бот не должен ничего «запускать». Уберите первый аргумент и оставьте только id игр, если не хотите отображать текст «Non-Steam game» на профиле.
+- `afkMessage` — автоответ, если кто-то напишет вам во время работы бота. Оставьте пустой строкой (`"afkMessage": ""`), чтобы отключить.
+- `commentdelay` — задержка **между комментариями** в миллисекундах. Рекомендуется оставить значение по умолчанию: слишком низкое значение приведёт к ошибкам кулдауна, так как Steam воспримет вашу активность как спам. Если ошибки кулдауна появляются даже со значениями по умолчанию — увеличьте этот параметр.
+- `loopRepeats` — сколько раз цикл комментирования проходит по всему списку адресатов (по умолчанию 1).
+- `loopDelay` — пауза в миллисекундах между полными циклами (не может быть меньше `commentdelay`).
+- `destinationResolveDelay` — задержка между преобразованием каждого адреса в ID. Значения по умолчанию (1000 мс) достаточно; увеличивать нужно только при очень большом количестве адресатов или при ошибках на старте.
+
+Если возникают проблемы — смотрите раздел *💡 Устранение неполадок* ниже.
 
 &nbsp;
 
-**Configuration:**  
-Open `config.json` with a text editor.  
+## 🚀 Запуск программы:
+Откройте консоль (терминал) **в папке с программой** и выполните:
 
-If you want to set a custom status and play games when running the bot, fill in the `playingGames` array in the config.  
-The array works like this: `["custom game text", game id, game id]`  
-Empty the array (like this `"playingGames": []`) if the bot should not play anything.  
-Remove the first argument and only provide game ids if you don't want to display a "Non-Steam game" text on your profile.
-  
-If the bot should respond with a message if someone messages you while the bot is running, set a message as `afkMessage`.  
-Empty the brackets (like this `"afkMessage": ""`) to disable the feature.  
+```
+node index.js
+```
 
-Take a look below at *Troubleshooting* if you experience issues.  
+или эквивалентную команду:
 
-&nbsp;
+```
+npm start
+```
 
-**Advanced-ish settings:**  
-The `commentdelay` value sets the time in ms the bot should wait between comments. I suggest leaving it at the default value.  
-Setting it too low will result in cooldown errors because Steam considers your account as spamming.  
-Should you receive cooldown errors with the default values, increase the value and try again.  
+Программа покажет меню интерфейса:
 
-The `destinationResolveDelay` value determines how long the bot will wait between resolving the ID behind every destination you have set.  
-The default value of 1000ms should be pretty lenient, if you configure A LOT of destinations you might need to increase this though.  
-Just keep the default setting and only change it if you are getting errors on start.
+1. Добавьте комментарии через пункт `1` (можно сразу несколько — в цикле).
+2. Проверьте/добавьте адресатов через пункт `6`.
+3. При необходимости настройте задержки и повторы через пункт `5`.
+4. Нажмите `7`, чтобы запустить комментирование.
 
-&nbsp;  
+Бот войдёт в ваш аккаунт, при необходимости запросит код Steam Guard, а затем начнёт оставлять комментарии по каждому адресу из списка — один за другим, с заданной задержкой. После завершения можно вернуться в меню и запустить цикл снова.
 
-## 🚀 Starting the bot:
-Please open a console window or terminal in the current folder.  
-Run the command `npm install --omit=dev` and wait for it to complete. This will install all necessary packages for the bot.  
-Ignore any "x vulnerabilities" messages, these are unavoidable and have no relevance for you.
+Чтобы запустить бота **без меню** (сразу комментирование, как в старых версиях):
 
-When done, type `node index.js` to start the bot.  
-It should log into your account, ask for a Steam Guard code if necessary, and start commenting on each destination you have set, one after another.  
+```
+node index.js --no-ui
+```
 
 &nbsp;
 
-If you are on Windows and don't know how to open a console window in the current folder:  
-- Open the folder of the bot with your Explorer  
-- Click on the blue `File` button in in the top left  
-- Click on the `Open PowerShell` or `Open CMD` entry and a console window should appear
+**Как открыть консоль в нужной папке на Windows:**
+- Откройте папку с ботом через Проводник
+- Нажмите на синюю кнопку `Файл` в левом верхнем углу
+- Выберите `Открыть PowerShell` или `Открыть CMD` — появится окно консоли в этой папке
+
+Другой способ: в проводнике, находясь в папке бота, введите `cmd` в адресную строку и нажмите Enter.
+
+На macOS/Linux: откройте Терминал и перейдите в папку командой `cd /путь/к/steam-mass-comment-bot`.
 
 &nbsp;
 
-## 💡 Troubleshooting:
-If you don't follow the syntax from the config setup guide above, you will get an error because the bot is unable to read the file.  
-If you are getting a syntax mistake error then check for these common mistakes:  
-- forgot to add a comma to the end of the line?
-- the very last line must not have a comma (look at the example above)
-- forgot brackets `"` when writing something?  
+## 💡 Устранение неполадок:
+Если вы нарушите синтаксис конфигурационных файлов (из руководства по настройке выше), программа выдаст ошибку, так как не сможет прочитать файл. При ошибке синтаксиса проверьте частые причины:
+- забыли запятую в конце строки?
+- в самой последней строке запятой быть не должно (смотрите пример выше)
+- забыли кавычки `"` при вводе текста?
 
-&nbsp;  
+Если `node index.js` пишет, что команды `node` нет — не установлен Node.js (см. Шаг 2).
+Если модули не находятся — вы пропустили установку зависимостей: выполните `npm install --omit=dev` в папке программы.
 
-If you get another error or have questions, please [open an issue here](https://github.com/3urobeat/steam-mass-comment-bot/issues/new).  
-Everything that appears in your console/terminal window will also be saved to the `output.txt` file. Please attach the content of your last run to your issue to make it easier for me to troubleshoot.  
+При других ошибках или вопросах, пожалуйста, [создайте issue здесь](https://github.com/3urobeat/steam-mass-comment-bot/issues/new).
+Всё, что появляется в окне консоли/терминала, также сохраняется в файл `output.txt`. Приложите содержимое последнего запуска к вашему issue — так мне будет проще помочь вам разобраться.
