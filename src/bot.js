@@ -36,6 +36,7 @@ async function runAccount(acc, destinations, quotes, menuMode) {
     const community = new SteamCommunity();
 
     let session;
+    let resolveOnce = () => {}; // Присваивается ниже, когда создаётся промис комментирования
 
     /**
      * Пытается залогинить аккаунт
@@ -54,6 +55,7 @@ async function runAccount(acc, destinations, quotes, menuMode) {
 
         if (!token) {
             logger("error", `[${tag}] Не удалось получить токен входа - аккаунт пропущен.`);
+            resolveOnce(false); // Освобождаем общий запуск чтобы другие аккаунты не ждали вечно
             return;
         }
 
@@ -68,6 +70,14 @@ async function runAccount(acc, destinations, quotes, menuMode) {
 
     // Устанавливаем cookies и запускаем цикл комментирования
     const commentingDone = new Promise((resolve) => {
+        let resolved = false;
+
+        // Разрешает промис ровно один раз (нужно чтобы ошибка логина не "вешала" общий запуск)
+        resolveOnce = (value) => {
+            if (resolved) return;
+            resolved = true;
+            resolve(value);
+        };
         bot.on("webSession", async (sessionID, cookies) => {
             community.setCookies(cookies);
 
@@ -184,11 +194,15 @@ async function runAccount(acc, destinations, quotes, menuMode) {
 
             session.invalidateTokenInStorage();
 
+            // Если пароля нет (например аккаунт добавлен как 'qrcode') - перелогин возможен только через QR/пароль заново
             setTimeout(() => login(), 5000);
             return;
         }
 
         logger("error", `[${tag}] Failed to log in! ${err}`);
+
+        // Аккаунт не смог войти entirely - завершаем его цикл, чтобы не вешать общий запуск
+        resolveOnce(false);
     });
 
     return commentingDone;

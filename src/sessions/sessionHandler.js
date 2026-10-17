@@ -115,9 +115,14 @@ class SessionHandler {
             const tempBot = new SteamUser();
             let settled = false;
 
+            // Явный флаг завершения: не даёт таймауту 60 сек "убить" вход, пока пользователь
+            // ещё сканирует QR или вводит Steam Guard код (ждём до 15 минут)
+            let done = false;
+
             const finish = (token) => {
                 if (settled) return;
                 settled = true;
+                done    = true;
 
                 tempBot.logOff();
 
@@ -165,33 +170,17 @@ class SessionHandler {
                 finish(null);
             });
 
+            // Общий лимит ожидания входа: 15 минут (QR-сканирование и ручной ввод кода могут занять время)
             setTimeout(() => {
-                if (!settled) {
-                    global.logger("error", "Login timed out after 60 seconds! Exiting...");
+                if (!done) {
+                    global.logger("error", "Login timed out after 15 minutes! Exiting...");
                     finish(null);
                 }
-            }, 60000);
+            }, 900000);
 
             if (useQr) {
-                global.logger("info", "Attempting QR login - please scan the QR code with your Steam Mobile App...");
-
-                tempBot.appCreateInstantLoginUrl().then(({ url }) => {
-                    require("qrcode").toString(url, { type: "utf8" }, (err, qr) => {
-                        if (err) return finish(null);
-
-                        console.log(qr);
-
-                        const poll = setInterval(() => {
-                            tempBot.getAccessToken({ authProvider: SteamUser.EAuthTokenProvider.SteamApp }).then((res) => {
-                                clearInterval(poll);
-                                finish(res.refreshToken);
-                            }).catch(() => { /* Пользователь еще не подтвердил вход */ });
-                        }, 3000);
-
-                        setTimeout(() => { clearInterval(poll); finish(null); }, 60000);
-                    });
-                }).catch((err) => {
-                    global.logger("error", `Failed to create QR login url! ${err}`);
+                return this._loginWithQR().then(finish).catch((err) => {
+                    global.logger("error", `Failed to create QR login! ${err}`);
                     finish(null);
                 });
             } else {
@@ -199,6 +188,65 @@ class SessionHandler {
 
                 tempBot.logOn({ accountName, password });
             }
+        });
+    }
+
+    /**
+     * Совершает вход по QR-коду через steam-session (LoginSession.startWithQR):
+     * печатает QR в консоли, пользователь сканирует его мобильным приложением Steam,
+     * после подтверждения возвращается refreshToken. Пароль и 2FA-код при этом не нужны.
+     * @returns {Promise<string>} refreshToken
+     */
+    _loginWithQR() {
+        return new Promise((resolve, reject) => {
+            const { LoginSession, EAuthTokenPlatformType } = require("steam-session");
+
+            global.logger("info", "Attempting QR login - please scan the QR code with your Steam Mobile App...");
+
+            const qrSession = new LoginSession(EAuthTokenPlatformType.SteamClient);
+
+            // Если аккаунт известен и есть sharedSecret - автоматически подтверждаем DeviceCode
+            const { accountName, sharedSecret } = this.logininfo;
+
+            if (accountName && sharedSecret) qrSession.accountName = accountName;
+
+            qrSession.on("timeout", () => reject(new Error("QR login timed out - please try again")));
+
+            qrSession.on("error", (err) => reject(err));
+
+            qrSession.on("authenticated", () => {
+                global.logger("info", "QR login confirmed! Got refresh token.");
+                resolve(qrSession.refreshToken);
+            });
+
+            qrSession.submitSteamGuardCode = async () => {};
+
+            qrSession.startWithQR().then((response) => {
+                if (!response.qrChallengeUrl) return reject(new Error("Steam did not return a QR challenge url"));
+
+                require("qrcode").toString(response.qrChallengeUrl, { type: "utf8" }, (err, qr) => {
+                    if (err) return reject(err);
+
+                    console.log("\n" + qr + "\n");
+                    global.logger("info", "Отсканируйте этот QR-код в мобильном приложении Steam (внизу экрана кнопка со штрих-кодом) и подтвердите вход.");
+
+                    // Если есть sharedSecret и известен аккаунт - можно подтвердить кодом автоматически
+                    if (accountName && sharedSecret) {
+                        setTimeout(() => {
+                            try {
+                                const code = require("steam-totp").generateAuthCode(sharedSecret);
+
+                                qrSession.submitSteamGuardCode(code).catch(() => { /* Ждём подтверждения QR */ });
+                            } catch (err) { /* Игнорируем - основной путь это сканирование QR */ }
+                        }, 2000);
+                    }
+                });
+            }).catch(reject);
+
+            // Защита от зависания
+            setTimeout(() => {
+                try { qrSession.cancelLoginAttempt(); } catch (err) { /* noop */ }
+            }, 90000);
         });
     }
 }

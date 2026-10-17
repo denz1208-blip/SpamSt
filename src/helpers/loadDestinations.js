@@ -5,41 +5,13 @@
  * Читает destinations.txt и приводит каждую строку к объекту адресата { raw, processed, type }.
  */
 
-const fs        = require("fs");
-const steamIDResolver = require("steamid-resolver");
+const fs = require("fs");
 
-
-/**
- * Поддерживаемые типы адресатов
- * @enum {string}
- */
-const EIdTypes = {
-    "profile": "profile",
-    "group": "group",
-    "sharedfile": "sharedfile",
-    "discussion": "discussion",
-    "curator": "curator",
-    "review": "review"
-};
+// Собственный резолвер вместо steamid-resolver (у библиотеки отсутствует метод getIDTypeAndID,
+// из-за чего падал с ошибкой "steamIDResolver.getIDTypeAndID is not a function")
+const { resolveDestination, EIdTypes } = require("./resolveDestination.js");
 
 module.exports.EIdTypes = EIdTypes;
-
-
-/**
- * Резолвит строку (URL / vanity / steamID64) в steamID64 и определяет её тип
- * @param {string} str Строка из destinations.txt
- * @returns {Promise<{ id: string, type: string }>} Отрезолвленный id и тип
- */
-function resolveDestination(str) {
-    return new Promise((resolve, reject) => {
-        steamIDResolver.getIDTypeAndID(str, null, (err, id, idType) => {
-            if (err || !id) return reject(err || new Error(`Could not resolve '${str}'`));
-
-            // Для review формат id: `userID/appID`, для discussion - полный URL - оставляем как есть
-            resolve({ id: String(id), type: idType });
-        });
-    });
-}
 
 
 /**
