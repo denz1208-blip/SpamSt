@@ -3,15 +3,37 @@
  * Project: SpamSt
  *
  * Отправляет один комментарий на указанный адресат (профиль/группу/sharedfile/обсуждение/review).
- * Для профилей и групп проверяет реальный ответ Steam: библиотека steamcommunity у postGroupComment
- * НЕ проверяет содержимое ответа (комментарий может не пройти - например группа с ограничением
- * "только участники"), поэтому мы сами разбираем JSON-ответ и показываем причину отказа.
+ * Логика публикации взята из эталонного проекта steam-mass-comment-bot (steamcommunity.postGroupComment),
+ * но с проверкой реального JSON-ответа Steam, чтобы показывать настоящую причину отказа.
+ *
+ * ВАЖНО про sessionid: steamcommunity хранит куки в jar по хосту. getSessionID() без аргумента
+ * читает "http://steamcommunity.com", а webSession-логин кладёт куки в https-jar. Если jar пуст,
+ * библиотека ГЕНЕРИРУЕТ случайный sessionid - Steam отвечает "Missing or invalid form session key".
+ * Поэтому ниже используется getCurrentSessionID(community) - он перебирает оба банка (https/http)
+ * и берёт НАСТОЯЩИЙ sessionid из кук сессии.
  */
 
 const randomstring = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 // Заглушка чтобы errback вызывался ровно один раз даже если библиотека дернет callback дважды
 const once = (fn) => { let done = false; return (...args) => { if (done) return; done = true; fn(...args); }; };
+
+/**
+ * Возвращает РЕАЛЬНЫЙ sessionid из cookie-jar библиотеки steamcommunity.
+ * Перебирает https- и http-варианты хоста; никогда не возвращает сгенерированную заглушку.
+ * @param {object} community Экземпляр SteamCommunity
+ * @returns {string|null}
+ */
+function getCurrentSessionID(community) {
+    for (const host of ["https://steamcommunity.com", "http://steamcommunity.com"]) {
+        try {
+            const cookies = String(community._jar.getCookieString(host) || "");
+            const m = cookies.match(/(?:^|;\s*)sessionid=([^;]+)/);
+            if (m) return decodeURIComponent(m[1].trim());
+        } catch (e) { /* пробуем следующий банк */ }
+    }
+    return null;
+}
 
 
 /**
@@ -68,7 +90,12 @@ function checkGroupPostingRights(gid64, community, callback) {
  * @param {Function} callback Вызывается как callback(err)
  */
 function tryJoinGroup(groupName, gid64, community, callback) {
+    callback = once(callback);
     if (!groupName) return callback(new Error("неизвестно текстовое имя группы"));
+
+    // Таймер защиты от зависания: любой HTTP-шаг не может держать нас дольше 30 секунд
+    const watchdog = setTimeout(() => callback(new Error("таймаут 30с при попытке вступления в группу")), 30000);
+    const finish = (err) => { clearTimeout(watchdog); callback(err); };
 
     // Сначала GET-запросом открываем страницу группы: Steam отдаёт в куки СВОЙ sessionid,
     // а в HTML - <input name="sessionid">. Используем именно его (как это делает браузер при
@@ -76,28 +103,19 @@ function tryJoinGroup(groupName, gid64, community, callback) {
     community.httpRequestGet({
         uri: `https://steamcommunity.com/groups/${groupName}`,
         headers: { "Referer": "https://steamcommunity.com/" },
+        timeout: 20000,
     }, null, (err, response, body) => {
-        if (err) return callback(err);
+        if (err) return finish(err);
 
-        let sid = null;
+        let sid = getCurrentSessionID(community); // настоящий sessionid из jar после сохранения кук ответа
 
-        // 1) sessionid из Set-Cookie ответа (jar steamcommunity сам сохранит его для POST)
-        const setCookie = response && (response.headers["set-cookie"] || response.getHeaders && response.getHeaders()["set-cookie"]);
-        if (Array.isArray(setCookie)) {
-            for (const c of setCookie) {
-                const m = String(c).match(/(?:^|[;\s])sessionid=([^;\s]+)/);
-                if (m) sid = decodeURIComponent(m[1]);
-            }
-        }
-
-        // 2) запасной вариант - значение из формы на странице
+        // запасной вариант - значение из формы на странице
         if (!sid && body) {
             const m = String(body).match(/name="sessionid"\s+value="([^"]+)"/i) || String(body).match(/g_sessionID\s*=\s*"([^"]+)"/);
             if (m) sid = m[1];
         }
 
-        // 3) совсем запасной - тот, что уже есть в куках библиотеки (https-jar!)
-        if (!sid) sid = community.getSessionID("https://steamcommunity.com");
+        if (!sid) return finish(new Error("не удалось получить sessionid (куки сессии не найдены - перелогиньтесь)"));
 
         const options = {
             uri: `https://steamcommunity.com/groups/${groupName}`,
@@ -108,32 +126,30 @@ function tryJoinGroup(groupName, gid64, community, callback) {
             },
             headers: {
                 "Referer": `https://steamcommunity.com/groups/${groupName}`,
-                "Origin": "https://steamcommunity.com",
             },
+            timeout: 20000,
         };
 
         community.httpRequestPost(options, (err2, response2, body2) => {
-            if (err2) return callback(err2);
-            if (!response2 || response2.statusCode >= 400) return callback(new Error(`HTTP error ${response2 ? response2.statusCode : "?"}`));
+            if (err2) return finish(err2);
+            if (!response2 || response2.statusCode >= 400) return finish(new Error(`HTTP error ${response2 ? response2.statusCode : "?"}`));
 
             // Steam не возвращает явного JSON при вступлении - проверяем страницу ответа:
             // если там есть кнопка "Leave"/"Покинуть" или запись участника - мы в группе.
             const text = String(body2 || (response2.body ? String(response2.body) : ""));
 
-            // Проверяем и исходный ответ POST, и свежую GET-страницу группы ниже
-            const joinedInResponse = /leavegroup|leave group|покинуть/i.test(text);
-            if (joinedInResponse) return callback(null);
+            if (/leavegroup|leave group|покинуть/i.test(text)) return finish(null);
 
             if (/this group is private|requires approval|invite-only|закрыт/i.test(text)) {
-                return callback(new Error("группа закрыта для свободного вступления (требует приглашения/одобрения заявки модератором)"));
+                return finish(new Error("группа закрыта для свободного вступления (требует приглашения/одобрения заявки модератором)"));
             }
 
             // Не уверены - перечитаем страницу группы: наличие кнопки выхода = участник
-            community.httpRequestGet({ uri: `https://steamcommunity.com/groups/${groupName}` }, null, (err3, res3, body3) => {
-                if (err3) return callback(null); // считаем запрос выполненным, решение примет повторная публикация
+            community.httpRequestGet({ uri: `https://steamcommunity.com/groups/${groupName}`, timeout: 20000 }, null, (err3, res3, body3) => {
+                if (err3) return finish(null); // считаем запрос выполненным, решение примет повторная публикация
                 const t3 = String(body3 || "");
-                if (/leavegroup|leave group|покинуть/i.test(t3)) return callback(null);
-                callback(new Error("вступление не подтверждено (страница группы не показывает членство - возможно группа по заявке/инвайту)"));
+                if (/leavegroup|leave group|покинуть/i.test(t3)) return finish(null);
+                finish(new Error("вступление не подтверждено (страница группы не показывает членство - возможно группа по заявке/инвайту)"));
             });
         }, "steamcommunity");
     });
@@ -149,34 +165,48 @@ function tryJoinGroup(groupName, gid64, community, callback) {
  * @param {Function} callback Вызывается как callback(err)
  */
 function postGroupCommentChecked(gid64, quote, community, callback) {
-    // sessionid из https-jar (настоящие куки сессии) - см. комментарий в tryJoinGroup
+    callback = once(callback);
+
+    // ВАЖНО: sessionid берём ТОЛЬКО из настоящих кук сессии (getCurrentSessionID).
+    // Никогда не вызываем getSessionID() - при пустом jar он генерирует случайный id,
+    // и Steam отвечает "Missing or invalid form session key".
+    const sid = getCurrentSessionID(community);
+    if (!sid) return callback(new Error("куки сессии потеряны (sessionid не найден) - удалите сохранённый токен и залогиньтесь заново"));
+
+    // Формируем запрос точно как эталонная steamcommunity.postGroupComment (из steam-mass-comment-bot),
+    // но добавляем json:true чтобы разобрать ответ Steam и проверить success
     const options = {
         uri: `https://steamcommunity.com/comment/Clan/post/${gid64}/-1/`,
         form: {
             comment: quote,
             count: 6,
-            sessionid: community.getSessionID("https://steamcommunity.com"),
+            sessionid: sid,
         },
         headers: {
             "X-Requested-With": "XMLHttpRequest",
             "Referer": `https://steamcommunity.com/gid/${gid64}`,
         },
         json: true,
+        timeout: 20000,
     };
 
+    // Защита от зависания: если Steam не ответит - колбэк придёт через таймер
+    const watchdog = setTimeout(() => callback(new Error("таймаут 30с при публикации комментария в группу")), 30000);
+    const finish = (...args) => { clearTimeout(watchdog); callback(...args); };
+
     community.httpRequestPost(options, (err, response, body) => {
-        if (err) return callback(err);
-        if (!response || response.statusCode >= 400) return callback(new Error(`HTTP error ${response ? response.statusCode : "?"}`));
+        if (err) return finish(err);
+        if (!response || response.statusCode >= 400) return finish(new Error(`HTTP error ${response ? response.statusCode : "?"}`));
         // ВАЖНО: steamcommunity сам разбирает JSON если options.json=true и кладёт объект в response.body,
         // а аргумент body может быть строкой - проверяем оба варианта
         const parsed = (body && typeof body === "object") ? body
             : ((response.body && typeof response.body === "object") ? response.body
                 : (() => { try { return JSON.parse(body); } catch (e) { return null; } })());
 
-        if (parsed === null || typeof parsed !== "object") return callback(new Error("Неожиданный ответ Steam (не JSON) - возможно аккаунт не авторизован или страница требует входа"));
+        if (parsed === null || typeof parsed !== "object") return finish(new Error("Неожиданный ответ Steam (не JSON) - возможно аккаунт не авторизован или страница требует входа"));
 
         // Steam возвращает success:true либо success:false + сообщение о причине
-        if (parsed.success) return callback(null);
+        if (parsed.success) return finish(null);
 
         const reason = parsed.message || (typeof parsed === "object" ? JSON.stringify(parsed).slice(0, 200) : String(parsed));
 
@@ -187,9 +217,11 @@ function postGroupCommentChecked(gid64, quote, community, callback) {
             hint = " Причина: у аккаунта нет прав писать в эту группу (аккаунт не состоит в группе / закрытая группа / комментарии только для участников / ограниченная учетная запись Steam без покупок). Бот автоматически попробовал вступить (autoJoinGroups) - если это не помогло, группа закрыта для новых участников / требует одобрения заявки модератором, либо аккаунт ограничен (нет покупок в Steam).";
         } else if (String(reason).includes("posting comments is currently disabled")) {
             hint = " Причина: в этой группе отключены комментарии.";
+        } else if (String(reason).includes("form session key")) {
+            hint = " Причина: куки сессии устарели - выполните повторный вход (пункт меню «Аккаунты» → перелогин).";
         }
 
-        return callback(new Error(`Steam отказал в публикации: ${reason}${hint}`));
+        return finish(new Error(`Steam отказал в публикации: ${reason}${hint}`));
     }, "steamcommunity");
 }
 

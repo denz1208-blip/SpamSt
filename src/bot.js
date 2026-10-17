@@ -82,20 +82,27 @@ async function runAccount(acc, destinations, quotes, menuMode) {
             community.setCookies(cookies);
 
             // ВАЖНО: steamcommunity берёт sessionid для AJAX-запросов из cookie-jar'а.
-            // setCookies() кладёт куки только в https-jar, а getSessionID() по умолчанию
-            // читает http-jar - и если там пусто, ГЕНЕРИРУЕТ НОВЫЙ СЛУЧАЙНЫЙ sessionid,
-            // который Steam не знает. Это и давало "Missing or invalid form session key"
-            // при авто-вступлении в группу. Принудительно инициализируем sessionid из
-            // настоящих куки сессии (то же значение, что реально использует браузер).
+            // setCookies() кладёт обычный sessionid только в http-jar, а webSession-куки
+            // могут не содержать sessionid вовсе - тогда getSessionID() ГЕНЕРИРУЕТ НОВЫЙ
+            // СЛУЧАЙНЫЙ id, которого у Steam нет -> "Missing or invalid form session key".
+            // Поэтому явно кладём НАСТОЯЩИЕ значения: сначала sessionID из события webSession,
+            // затем sessionid из массива cookies (если там есть), в ОБА банка jar (http+https).
             try {
                 const RequestLib = require("request");
-                const sidCookie = (Array.isArray(cookies) ? cookies.join("; ") : String(cookies || "")).match(/(?:^|[;\s])sessionid=([^;\s]+)/);
-                if (sidCookie) {
-                    // Сначала читаем https-jar (setCookies положил туда настоящие куки сессии) -
-                    // если sessionid там есть, getSessionID вернёт именно его и ничего не сгенерирует.
-                    let sid = community.getSessionID("https://steamcommunity.com");
-                    // Кладем это же значение в http-jar, чтобы последующие getSessionID() тоже отдавали его
-                    community._jar.setCookie(RequestLib.cookie(`sessionid=${encodeURIComponent(sid)}`), "http://steamcommunity.com");
+                let sid = null;
+
+                if (sessionID && typeof sessionID === "string") sid = sessionID;
+                if (!sid) {
+                    const sidCookie = (Array.isArray(cookies) ? cookies.join("; ") : String(cookies || "")).match(/(?:^|[;\s])sessionid=([^;\s]+)/);
+                    if (sidCookie) { try { sid = decodeURIComponent(sidCookie[1]); } catch (e) { sid = sidCookie[1]; } }
+                }
+
+                if (sid) {
+                    for (const host of ["http://steamcommunity.com", "https://steamcommunity.com"]) {
+                        community._jar.setCookie(RequestLib.cookie(`sessionid=${encodeURIComponent(sid)}`), host);
+                    }
+                } else {
+                    logger("warn", `[${tag}] В куках сессии не найден sessionid - публикации могут падать. Поможет перелогин аккаунта.`);
                 }
             } catch (e) { /* не критично - дальше используем то, что есть */ }
 

@@ -1,6 +1,6 @@
 {
     "name": "SpamSt",
-    "version": "2.5.6",
+    "version": "2.5.7",
     "description": "Comment with a few clicks under a ton of steam profiles & groups!",
     "main": "index.js",
     "dependencies": {
