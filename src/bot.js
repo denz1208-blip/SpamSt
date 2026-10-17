@@ -130,11 +130,21 @@ async function runAccount(acc, destinations, quotes, menuMode) {
                             return;
                         }
 
-                        // Постоянный отказ Steam (не кулдаун): комментарии запрещены или аккаунту запрещено писать.
-                        // Повторять цикл бесполезно - выходим сразу, чтобы не плодить ошибки и не ловить лимиты.
-                        if (errMsg.includes("do not allow you to add comments") || errMsg.includes("posting comments is currently disabled") || errMsg.includes("not permitted to post")) {
+                        // Постоянный отказ Steam (не кулдаун): комментарии в этом адресате выключены совсем.
+                        // Пропускаем этот адресат и продолжаем с остальными (у аккаунта может быть несколько целей).
+                        if (errMsg.includes("posting comments is currently disabled")) {
+                            logger("warn", `[${tag}] Комментарии у этого адресата отключены - пропускаю его и продолжаю с остальными.`);
+
+                            global.updateProgress();
+
+                            continue;
+                        }
+
+                        // Отказ из-за отсутствия прав (например не состоишь в группе) - обычно относится ко ВСЕМ
+                        // группам/адресатам этого аккаунта, поэтому прерываем цикл этого аккаунта целиком.
+                        if (errMsg.includes("do not allow you to add comments") || errMsg.includes("not permitted to post") || errMsg.includes("Нет прав") || errMsg.includes("Вступил в группу")) {
                             logger("", "", true);
-                            logger("error", `[${tag}] Steam на постоянной основе отказывает в публикации (${errMsg.slice(0, 160)}). Прерываю комментирование этим аккаунтом.`);
+                            logger("error", `[${tag}] Steam отказывает в публикации (${errMsg.slice(0, 220)}). Прерываю комментирование этим аккаунтом.`);
                             permDenied = true;
 
                             return;
@@ -501,6 +511,11 @@ async function runInterface() {
                 console.log(`    accountStartDelay   = ${config.accountStartDelay ?? 2000} мс ${ui.paint("dim", "(пауза между стартами аккаунтов)")}`);
                 console.log(`    loopRepeats         = ${config.loopRepeats ?? 1} ${ui.paint("dim", "(сколько раз пройти по всем адресатам)")}`);
                 console.log(`    loopDelay           = ${config.loopDelay ?? 0} мс ${ui.paint("dim", "(пауза между проходами цикла)")}`);
+                console.log(`    autoJoinGroups      = ${config.autoJoinGroups !== false ? "вкл" : "выкл"} ${ui.paint("dim", "(авто-вступление в группы при отказе прав)")}`);
+
+                const aj = await ui.ask("Авто-вступление в группы? (y/n, Enter = оставить): ");
+                if (aj.toLowerCase() == "y") config.autoJoinGroups = true;
+                else if (aj.toLowerCase() == "n") config.autoJoinGroups = false;
 
                 const cd = await ui.ask("Новый commentdelay, мс (Enter = оставить): ");
                 if (cd && !isNaN(parseInt(cd))) config.commentdelay = parseInt(cd);
