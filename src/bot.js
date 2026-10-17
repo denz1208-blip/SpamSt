@@ -13,10 +13,34 @@ const SteamUser      = require("steam-user");
 const SteamCommunity = require("steamcommunity");
 const SteamTotp      = require("steam-totp");
 const SteamID        = require("steamid");
+const Request        = require("request");
 const EResult        = SteamUser.EResult;
 
 const pkgVersion    = (() => { try { return require("../package.json").version; } catch (err) { return "unknown"; } })();
 const { ask }       = require("./ui.js");
+
+
+/**
+ * Патч getSessionID: библиотека steamcommunity по умолчанию читает sessionid из http-jar,
+ * а логин через webSession кладёт сессионные куки в https-jar. Если jar пуст, оригинальный
+ * getSessionID() ГЕНЕРИРУЕТ СЛУЧАЙНЫЙ sessionid - Steam отвечает "Missing or invalid form
+ * session key" и публикация падает. Этот патч перебирает оба банка (https/http) и берёт
+ * ТОЛЬКО настоящий sessionid из кук; если его нет - бросает понятную ошибку вместо тихого
+ * использования фейкового значения.
+ */
+SteamCommunity.prototype.getSessionID = function() {
+    for (const host of [ "https://steamcommunity.com", "http://steamcommunity.com" ]) {
+        const cookies = String(this._jar.getCookieString(host) || "").split(";");
+
+        for (const c of cookies) {
+            const m = c.trim().match(/([^=]+)=(.+)/);
+
+            if (m && m[1] == "sessionid") return decodeURIComponent(m[2].trim());
+        }
+    }
+
+    throw new Error("Не найден настоящий sessionid в куках сессии - куки устарели. Поможет перелогин аккаунта (пункт меню «Аккаунты» → удалить и добавить заново).");
+};
 
 let config;
 
@@ -88,7 +112,6 @@ async function runAccount(acc, destinations, quotes, menuMode) {
             // Поэтому явно кладём НАСТОЯЩИЕ значения: сначала sessionID из события webSession,
             // затем sessionid из массива cookies (если там есть), в ОБА банка jar (http+https).
             try {
-                const RequestLib = require("request");
                 let sid = null;
 
                 if (sessionID && typeof sessionID === "string") sid = sessionID;
@@ -99,8 +122,14 @@ async function runAccount(acc, destinations, quotes, menuMode) {
 
                 if (sid) {
                     for (const host of ["http://steamcommunity.com", "https://steamcommunity.com"]) {
-                        community._jar.setCookie(RequestLib.cookie(`sessionid=${encodeURIComponent(sid)}`), host);
+                        community._jar.setCookie(Request.cookie(`sessionid=${encodeURIComponent(sid)}`), host);
                     }
+
+                    // Дополнительная проверка: запрашиваем главную страницу steamcommunity -
+                    // сервер сам выставит актуальный sessionid в Set-Cookie (как при обычном
+                    // посещении браузером), и request.jar сохранит его. Это гарантирует, что
+                    // sessionid совпадает с тем, что знает Steam, даже если webSession его не прислал.
+                    await new Promise((r) => community.httpRequestGet({ uri: "https://steamcommunity.com/", timeout: 20000 }, () => r()));
                 } else {
                     logger("warn", `[${tag}] В куках сессии не найден sessionid - публикации могут падать. Поможет перелогин аккаунта.`);
                 }

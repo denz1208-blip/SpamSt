@@ -91,71 +91,80 @@ function checkGroupPostingRights(gid64, community, callback) {
  */
 function tryJoinGroup(groupName, gid64, community, callback) {
     callback = once(callback);
-    if (!groupName) return callback(new Error("неизвестно текстовое имя группы"));
 
     // Таймер защиты от зависания: любой HTTP-шаг не может держать нас дольше 30 секунд
     const watchdog = setTimeout(() => callback(new Error("таймаут 30с при попытке вступления в группу")), 30000);
     const finish = (err) => { clearTimeout(watchdog); callback(err); };
 
-    // Сначала GET-запросом открываем страницу группы: Steam отдаёт в куки СВОЙ sessionid,
-    // а в HTML - <input name="sessionid">. Используем именно его (как это делает браузер при
-    // нажатии кнопки "Join") - это исключает "Missing or invalid form session key".
-    // ВАЖНО: у httpRequestGet ровно ТРИ аргумента (options, callback[, source]).
-    // Старый вызов с лишним `null` ломал сигнатуру и колбэк никогда не вызывался -
-    // из-за этого бот «зависал» на этом шаге.
-    community.httpRequestGet({
-        uri: `https://steamcommunity.com/groups/${groupName}`,
-        headers: { "Referer": "https://steamcommunity.com/" },
-        timeout: 20000,
-    }, (err, response, body) => {
-        if (err) return finish(err);
+    // Определяем НАСТОЯЩИЙ sessionid: сначала из jar, затем GET-страницы группы (Steam
+    // выставит его сам в Set-Cookie). Никогда не используем сгенерированную заглушку.
+    const ensureSessionID = (done) => {
+        let sid = getCurrentSessionID(community);
+        if (sid) return done(null, sid);
 
-        let sid = getCurrentSessionID(community); // настоящий sessionid из jar после сохранения кук ответа
+        community.httpRequestGet({ uri: `https://steamcommunity.com/groups/${groupName || gid64}`, timeout: 20000 }, (err0, res0, body0) => {
+            sid = getCurrentSessionID(community); // jar обновился куками ответа
 
-        // запасной вариант - значение из формы на странице
-        if (!sid && body) {
-            const m = String(body).match(/name="sessionid"\s+value="([^"]+)"/i) || String(body).match(/g_sessionID\s*=\s*"([^"]+)"/);
-            if (m) sid = m[1];
-        }
-
-        if (!sid) return finish(new Error("не удалось получить sessionid (куки сессии не найдены - перелогиньтесь)"));
-
-        const options = {
-            uri: `https://steamcommunity.com/groups/${groupName}`,
-            form: {
-                action: "join",
-                acceptage: "agree",
-                sessionid: sid,
-            },
-            headers: {
-                "Referer": `https://steamcommunity.com/groups/${groupName}`,
-            },
-            timeout: 20000,
-        };
-
-        community.httpRequestPost(options, (err2, response2, body2) => {
-            if (err2) return finish(err2);
-            if (!response2 || response2.statusCode >= 400) return finish(new Error(`HTTP error ${response2 ? response2.statusCode : "?"}`));
-
-            // Steam не возвращает явного JSON при вступлении - проверяем страницу ответа:
-            // если там есть кнопка "Leave"/"Покинуть" или запись участника - мы в группе.
-            const text = String(body2 || (response2.body ? String(response2.body) : ""));
-
-            if (/leavegroup|leave group|покинуть/i.test(text)) return finish(null);
-
-            if (/this group is private|requires approval|invite-only|закрыт/i.test(text)) {
-                return finish(new Error("группа закрыта для свободного вступления (требует приглашения/одобрения заявки модератором)"));
+            if (!sid && body0) {
+                const m = String(body0).match(/name="sessionid"\s+value="([^"]+)"/i) || String(body0).match(/g_sessionID\s*=\s*"([^"]+)"/);
+                if (m) sid = m[1];
             }
 
-            // Не уверены - перечитаем страницу группы: наличие кнопки выхода = участник
-            community.httpRequestGet({ uri: `https://steamcommunity.com/groups/${groupName}`, timeout: 20000 }, (err3, res3, body3) => {
-                if (err3) return finish(null); // считаем запрос выполненным, решение примет повторная публикация
-                const t3 = String(body3 || "");
-                if (/leavegroup|leave group|покинуть/i.test(t3)) return finish(null);
-                finish(new Error("вступление не подтверждено (страница группы не показывает членство - возможно группа по заявке/инвайту)"));
-            });
-        }, "steamcommunity");
-    });
+            done(sid ? null : new Error("не удалось получить sessionid (куки сессии не найдены - перелогиньтесь)"), sid);
+        });
+    };
+
+    const doJoin = (targetName) => {
+        ensureSessionID((e0, sid) => {
+            if (e0) return finish(e0);
+
+            const options = {
+                uri: `https://steamcommunity.com/groups/${targetName}`,
+                form: {
+                    action: "join",
+                    acceptage: "agree",
+                    sessionid: sid,
+                },
+                headers: {
+                    "Referer": `https://steamcommunity.com/groups/${targetName}`,
+                },
+                timeout: 20000,
+            };
+
+            community.httpRequestPost(options, (err2, response2, body2) => {
+                if (err2) return finish(err2);
+                if (!response2 || response2.statusCode >= 400) return finish(new Error(`HTTP error ${response2 ? response2.statusCode : "?"}`));
+
+                // Steam не возвращает явного JSON при вступлении - проверяем страницу ответа:
+                // если там есть кнопка "Leave"/"Покинуть" или запись участника - мы в группе.
+                const text = String(body2 || (response2.body ? String(response2.body) : ""));
+
+                if (/leavegroup|leave group|покинуть/i.test(text)) return finish(null);
+
+                if (/this group is private|requires approval|invite-only|закрыт/i.test(text)) {
+                    return finish(new Error("группа закрыта для свободного вступления (требует приглашения/одобрения заявки модератором)"));
+                }
+
+                // Не уверены - перечитаем страницу группы: наличие кнопки выхода = участник
+                community.httpRequestGet({ uri: `https://steamcommunity.com/groups/${targetName}`, timeout: 20000 }, (err3, res3, body3) => {
+                    if (err3) return finish(null); // считаем запрос выполненным, решение примет повторная публикация
+                    const t3 = String(body3 || "");
+                    if (/leavegroup|leave group|покинуть/i.test(t3)) return finish(null);
+                    finish(new Error("вступление не подтверждено (страница группы не показывает членство - возможно группа по заявке/инвайту)"));
+                });
+            }, "steamcommunity");
+        });
+    };
+
+    if (groupName) {
+        doJoin(groupName);
+        return;
+    }
+
+    // Имя группы неизвестно - пробуем канонический /gid/<число>/ URL.
+    // Steam отдаёт 302-редирект на страницу группы, а httpRequestPost редиректы следует.
+    if (gid64) doJoin(`gid/${gid64}`);
+        else finish(new Error("неизвестно ни текстовое имя группы, ни gid64"));
 }
 
 
@@ -243,21 +252,24 @@ module.exports.comment = async function(dest, quotes, community, callback) {
     const quote = randomstring(quotes);
 
     // Группы комментируем собственной функцией с проверкой ответа Steam (см. начало файла).
-    // Публикуем сразу; если Steam отказал из-за прав - при включенном autoJoinGroups
-    // автоматически вступаем в группу и повторяем публикацию один раз.
+    // Если включено авто-вступление (autoJoinGroups), то при отсутствии прав бот сначала
+    // ВСТУПАЕТ в группу и только потом публикует комментарий.
     if (dest.type == "group") {
         const gid64 = dest.processed;
+        let autoJoin = true;
 
+        try { autoJoin = require("../../config.json").autoJoinGroups !== false; } catch (e) { /* конфиг читается позже - дефолт true */ }
+
+        // 1) Публикуем комментарий
         global.logger("info", `Commenting on 'group' '${gid64}': ${quote.split("\n")[0]}`, false, false, global.logger.animation("loading"));
 
-        const firstErr = await new Promise((resolve) => postGroupCommentChecked(gid64, quote, community, resolve));
+        let firstErr = await new Promise((resolve) => postGroupCommentChecked(gid64, quote, community, resolve));
 
         if (!firstErr) return callback(null, quote);
 
         const isRightsError = String(firstErr.message || firstErr).includes("do not allow you to add comments");
-        const autoJoin = require("../../config.json").autoJoinGroups !== false;
 
-        // Пробуем спасти публикацию авто-вступлением только при отказе по правам
+        // 2) Отказали из-за прав (аккаунт не состоит в группе) - пробуем вступление + повторную публикацию ОДИН раз
         if (isRightsError && autoJoin) {
             global.logger("warn", `Группа '${gid64}' отказала в правах - пробую вступить автоматически...`);
 
