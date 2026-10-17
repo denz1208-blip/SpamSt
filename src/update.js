@@ -154,6 +154,20 @@ async function updateFromGitHub(rootDir) {
         console.log("> Обновляю файлы программы (личные файлы сохраняются)...");
         copyFiles(extractedRoot, rootDir, KEEP_FILES);
 
+        // Если в сохранённом пользовательском config.json нет новых полей - дописываем их со значениями по умолчанию
+        try {
+            const cfgPath = path.join(rootDir, "config.json");
+
+            if (fs.existsSync(cfgPath)) {
+                const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+
+                if (typeof cfg.postDelay === "undefined") cfg.postDelay = cfg.commentdelay ?? 7500;
+                if (typeof cfg.accountStartDelay === "undefined") cfg.accountStartDelay = 2000;
+
+                fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 4));
+            }
+        } catch (err) { /* не критично */ }
+
         console.log("> Готово! Файлы программы обновлены.");
 
         if (localVersion != remoteVersion) console.log("> Изменилась версия - рекомендуем также запустить 'npm install' для обновления зависимостей.");

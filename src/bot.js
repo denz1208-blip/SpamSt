@@ -86,9 +86,10 @@ async function runAccount(acc, destinations, quotes, menuMode) {
 
             const loopRepeats = Math.max(1, parseInt(config.loopRepeats) || 1); // Сколько раз пройтись циклом по всем адресатам
             const loopDelay   = Math.max(config.commentdelay, parseInt(config.loopDelay) || 0); // Пауза между полными циклами
+            const postDelay   = Math.max(0, parseInt(config.postDelay ?? config.commentdelay));  // Задержка МЕЖДУ отдельными постами
 
             logger("", "", true);
-            logger("", `> [${tag}] Начинаю комментирование через 3 секунды (${config.commentdelay}ms delay)!`, true);
+            logger("", `> [${tag}] Начинаю комментирование через 3 секунды (${postDelay}ms delay между постами)!`, true);
             if (loopRepeats > 1) logger("", `> [${tag}] Loop mode ON: ${loopRepeats} проход(ов) цикла с паузой ${loopDelay}ms!`, true);
 
             // Ждём 3 секунды чтобы все аккаунты успели залогиниться перед стартом
@@ -98,66 +99,66 @@ async function runAccount(acc, destinations, quotes, menuMode) {
 
             const failed = [];
             let http429err = false;
-            let totalSent  = 0;
-            const totalAll = destinations.length * loopRepeats;
+            let sentOk     = 0;
+            let sentFail   = 0;
 
             /**
-             * Один проход цикла: комментирует все адреса по одному разу
+             * Один проход цикла: комментирует все адреса ПОСЛЕДОВАТЕЛЬНО с паузой postDelay между постами
              * @param {number} repeatIndex Номер текущего прохода цикла (с 1)
              * @returns {Promise<void>} Резолвится когда весь цикл завершится
              */
-            function runCycle(repeatIndex) {
-                return new Promise((cycleResolve) => {
-                    destinations.forEach((e, i) => {
-                        setTimeout(() => {
-                            if (http429err) return cycleResolve(); // Блок дальнейших выполнений при кулдауне
+            async function runCycle(repeatIndex) {
+                for (let i = 0; i < destinations.length; i++) {
+                    if (http429err) return; // Блок дальнейших выполнений при кулдауне
 
-                            comment(e, quotes, community, (err) => {
-                                if (err) {
-                                    failed.push(`${tag}: ${e.raw}`);
+                    // eslint-disable-next-line no-await-in-loop
+                    const err = await new Promise((resolve) => comment(destinations[i], quotes, community, resolve));
 
-                                    if (String(err).includes("HTTP error 429") || String(err).includes("You've been posting too frequently, and can't make another post right now")) {
-                                        logger("", "", true);
-                                        logger("error", `[${tag}] Cooldown error detected! Aborting as all other comments from this IP will fail too! Please wait before trying again.`);
+                    if (err) {
+                        failed.push(`${tag}: ${destinations[i].raw} (${err})`);
+                        sentFail++;
 
-                                        http429err = true;
+                        if (String(err).includes("HTTP error 429") || String(err).includes("You've been posting too frequently") || String(err).includes("posting comments is currently disabled")) {
+                            logger("", "", true);
+                            logger("error", `[${tag}] Cooldown/limitation error detected! Aborting as all other comments from this IP will fail too! Please wait before trying again.`);
 
-                                        return cycleResolve();
-                                    }
-                                }
+                            http429err = true;
 
-                                totalSent++;
+                            return;
+                        }
+                    } else {
+                        sentOk++;
+                    }
 
-                                // Пересчитываем общий прогресс (по всем аккаунтам)
-                                global.updateProgress();
+                    // Пересчитываем общий прогресс (по всем аккаунтам)
+                    global.updateProgress();
 
-                                // Последний адресат этого прохода цикла?
-                                if (i + 1 == destinations.length) {
-                                    if (repeatIndex < loopRepeats && !http429err) {
-                                        logger("info", `[${tag}] Finished cycle ${repeatIndex}/${loopRepeats}! Waiting ${loopDelay}ms before next cycle...`);
+                    // Пауза между постами (не после последнего в проходе)
+                    if (i + 1 < destinations.length && postDelay > 0) {
+                        // eslint-disable-next-line no-await-in-loop
+                        await new Promise((r) => setTimeout(r, postDelay));
+                    }
+                }
 
-                                        setTimeout(() => {
-                                            runCycle(repeatIndex + 1).then(cycleResolve);
-                                        }, loopDelay);
-                                    } else {
-                                        cycleResolve();
-                                    }
-                                }
-                            });
-                        }, config.commentdelay * (i + 1)); // + 1 чтобы отложить и первую итерацию
-                    });
-                });
+                // Все адресаты этого прохода обработаны - нужен ли следующий проход цикла?
+                if (!http429err && repeatIndex < loopRepeats) {
+                    logger("info", `[${tag}] Finished cycle ${repeatIndex}/${loopRepeats}! Waiting ${loopDelay}ms before next cycle...`);
+
+                    await new Promise((r) => setTimeout(r, loopDelay));
+
+                    return runCycle(repeatIndex + 1);
+                }
             }
 
             // Запускаем цикл комментирования (проходится loopRepeats раз)
-            runCycle(1).then(() => {
-                logger("info", `[${tag}] Finished commenting!\n`);
+            await runCycle(1);
 
-                if (failed.length > 0) logger("info", `Failed for ${tag}: \n` + failed.join("\n"));
+            logger("info", `[${tag}] Finished commenting! Успешно: ${sentOk}, с ошибками: ${sentFail}\n`);
 
-                bot.logOff();
-                resolve(!http429err);
-            });
+            if (failed.length > 0) logger("info", `Failed for ${tag}: \n` + failed.join("\n"));
+
+            bot.logOff();
+            resolve(!http429err);
         });
     });
 
@@ -286,14 +287,18 @@ async function startCommenting(menuMode = false) {
 
     const loopRepeats = Math.max(1, parseInt(config.loopRepeats) || 1);
 
+    // Задержки: postDelay - между отдельными постами одного аккаунта, accountStartDelay - между стартами аккаунтов
+    const postDelay         = Math.max(0, parseInt(config.postDelay ?? config.commentdelay));
+    const accountStartDelay = Math.max(0, parseInt(config.accountStartDelay ?? 2000));
+
     // Show ready message
     logger("", "", true);
     logger("", "*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*", true);
-    logger("", `> Accounts: ${accounts.map((a) => a.accountName).join(", ")} (${accounts.length})`, true);
-    logger("", `> Found ${destinations.length} destinations in config!`, true);
-    logger("", `> Loaded ${quotes.length} quotes from comments.txt!`, true);
-    logger("", `> Starting to comment in 3 seconds with ${config.commentdelay}ms delay!`, true);
-    if (loopRepeats > 1) logger("", `> Loop mode ON: repeating the whole cycle ${loopRepeats} time(s)!`, true);
+    logger("", `> Аккаунты: ${accounts.map((a) => a.accountName).join(", ")} (${accounts.length})`, true);
+    logger("", `> Адресатов: ${destinations.length}`, true);
+    logger("", `> Комментариев в списке (comments.txt): ${quotes.length}`, true);
+    logger("", `> Задержка между постами: ${postDelay} мс | между аккаунтами: ${accountStartDelay} мс`, true);
+    if (loopRepeats > 1) logger("", `> Режим цикла: ${loopRepeats} проход(ов), пауза между проходами ${config.loopDelay ?? 0} мс`, true);
     logger("", "*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*", true);
     logger("", "", true);
 
@@ -307,8 +312,15 @@ async function startCommenting(menuMode = false) {
         logger.setProgressBar(totalSent / totalAll * 100);
     };
 
-    // Стартуем все аккаунты параллельно (каждый со своей сессией и 2FA при необходимости)
-    const results = await Promise.all(accounts.map((acc) => runAccount(acc, destinations, quotes, menuMode)));
+    // Стартуем аккаунты с задержкой accountStartDelay между запусками (каждый со своей сессией и 2FA при необходимости)
+    const results = [];
+
+    for (let i = 0; i < accounts.length; i++) {
+        if (i > 0 && accountStartDelay > 0) await new Promise((r) => setTimeout(r, accountStartDelay));
+
+        logger("info", `Запускаю аккаунт ${i + 1}/${accounts.length}: ${accounts[i].accountName}`);
+        results.push(await runAccount(accounts[i], destinations, quotes, menuMode));
+    }
 
     logger("info", `All accounts finished! Success: ${results.filter(Boolean).length}/${accounts.length}\n`);
 
@@ -342,12 +354,15 @@ async function accountsMenu() {
         const list = loadAccounts();
 
         console.log("");
-        console.log(`*-=-=-=-=-=- АККАУНТЫ (${list.length}) -=-=-=-*`);
-        list.forEach((a, i) => console.log(`   ${i + 1}. ${a.accountName}${a.sharedSecret ? " [2FA-ключ]" : ""}`));
-        console.log("> a. Добавить / обновить аккаунт");
-        console.log("> d. Удалить аккаунт");
-        console.log("> b. Назад в главное меню");
-        console.log("*-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-*");
+        ui.line("=");
+        console.log(ui.paint("bold", `  АККАУНТЫ (${list.length})`));
+        ui.line("=");
+        list.forEach((a, i) => console.log(`   ${i + 1}. ${ui.paint("green", a.accountName)}${a.sharedSecret ? ui.paint("dim", " [2FA-ключ]") : ""}`));
+        if (list.length == 0) console.log(ui.paint("dim", "   (список пуст - добавьте аккаунт)"));
+        console.log(`   ${ui.paint("green", "a.")} Добавить / обновить аккаунт`);
+        console.log(`   ${ui.paint("red", "d.")} Удалить аккаунт`);
+        console.log(`   ${ui.paint("yellow", "b.")} Назад в главное меню`);
+        ui.line("=");
 
         const choice = await ui.ask("Выбор: ");
 
@@ -357,7 +372,7 @@ async function accountsMenu() {
             const name = await ui.ask("Логин Steam (accountName): ");
 
             if (!name) {
-                console.log("> Пустое имя - отменено.");
+                ui.msg("info", "Пустое имя - отменено.");
                 continue;
             }
 
@@ -365,14 +380,14 @@ async function accountsMenu() {
             const secret = await ui.ask("sharedSecret из Steam Guard (Enter = не использовать, обычный ввод кода): ");
 
             upsertAccount({ accountName: name, password: pass || "", sharedSecret: secret || "" });
-            console.log(`> Аккаунт '${name}' сохранен в accounts.json!`);
-            console.log("> При следующем запуске комментирования будет запрошен Steam Guard код (или использован QR/sharedSecret),");
-            console.log("> после чего токен сохранится и вводить пароль/код повторно не потребуется.");
+            ui.msg("ok", `Аккаунт '${name}' сохранен в accounts.json!`);
+            ui.msg("info", "При следующем запуске комментирования будет выполнен вход (QR / код Steam Guard / sharedSecret),");
+            ui.msg("info", "после чего токен сохранится и вводить пароль/код повторно не потребуется.");
         } else if (choice == "d") {
             const name = await ui.ask("Имя аккаунта для удаления: ");
 
-            if (removeAccount(name)) console.log(`> Аккаунт '${name}' удален!`);
-            else console.log("> Аккаунт не найден!");
+            if (removeAccount(name)) ui.msg("ok", `Аккаунт '${name}' удален!`);
+            else ui.msg("err", "Аккаунт не найден!");
         }
     }
 }
@@ -386,9 +401,7 @@ async function runInterface() {
     const ui = require("./ui.js");
 
     console.log("");
-    console.log("=====================================");
-    console.log(" SpamSt - ИНТЕРФЕЙС ");
-    console.log("=====================================");
+    ui.printHeader();
 
     /* eslint-disable no-constant-condition */
     while (true) {
@@ -405,36 +418,32 @@ async function runInterface() {
                     const text = await ui.ask(`Комментарий #${i}/${count} (пустая строка = отмена): `);
 
                     if (!text) {
-                        console.log("> Отменено пользователем.");
+                        ui.msg("info", "Отменено пользователем.");
                         break;
                     }
 
                     fs.appendFileSync("./comments.txt", text + "\n"); // Сохраняем в comments.txt
-                    console.log(`> Комментарий #${i} добавлен в comments.txt!`);
+                    ui.msg("ok", `Комментарий #${i} добавлен в comments.txt!`);
                 }
 
                 break;
             }
             case "2": { // Показать список комментариев
-                const { getQuote } = require("./helpers/getQuote.js");
+                const quotes = fs.existsSync("./comments.txt") ? fs.readFileSync("./comments.txt", "utf8").split("\n").filter((l) => l.trim().length > 0) : [];
 
-                getQuote((err, quotes) => {
-                    if (err || quotes.length == 0) return console.log("> comments.txt пуст или не найден!");
+                if (quotes.length == 0) { ui.msg("err", "comments.txt пуст или не найден!"); break; }
 
-                    console.log(`> Комментарии (${quotes.length}):`);
-                    quotes.forEach((q, i) => console.log(`   ${i + 1}. ${q}`));
-                });
+                ui.msg("info", `Комментарии (${quotes.length}):`);
+                quotes.forEach((q, i) => console.log(`   ${i + 1}. ${q}`));
 
                 break;
             }
             case "3": { // Удалить комментарий
-                const { getQuote } = require("./helpers/getQuote.js");
+                const lines0 = fs.existsSync("./comments.txt") ? fs.readFileSync("./comments.txt", "utf8").split("\n").filter((l) => l.trim().length > 0) : [];
 
-                getQuote((err, quotes) => {
-                    if (err || quotes.length == 0) return console.log("> comments.txt пуст или не найден!");
+                if (lines0.length == 0) { ui.msg("err", "comments.txt пуст или не найден!"); break; }
 
-                    quotes.forEach((q, i) => console.log(`   ${i + 1}. ${q}`));
-                });
+                lines0.forEach((q, i) => console.log(`   ${i + 1}. ${q}`));
 
                 const idxRaw = await ui.ask("Введите номер комментария для удаления (0 = отмена): ");
                 const idx = parseInt(idxRaw) || 0;
@@ -444,13 +453,13 @@ async function runInterface() {
                 const lines = fs.readFileSync("./comments.txt", "utf8").split("\n").filter((l) => l.trim().length > 0);
 
                 if (idx > lines.length) {
-                    console.log("> Комментарий с таким номером не найден!");
+                    ui.msg("err", "Комментарий с таким номером не найден!");
                     break;
                 }
 
                 lines.splice(idx - 1, 1);
                 fs.writeFileSync("./comments.txt", lines.join("\n") + "\n");
-                console.log("> Комментарий удален!");
+                ui.msg("ok", "Комментарий удален!");
 
                 break;
             }
@@ -459,36 +468,46 @@ async function runInterface() {
 
                 if (confirm.toLowerCase() == "y") {
                     fs.writeFileSync("./comments.txt", "");
-                    console.log("> comments.txt очищен!");
+                    ui.msg("ok", "comments.txt очищен!");
                 } else {
-                    console.log("> Отменено.");
+                    ui.msg("info", "Отменено.");
                 }
 
                 break;
             }
             case "5": { // Настройки
-                console.log(`> commentdelay (мс между комментариями): ${config.commentdelay}`);
-                console.log(`> loopRepeats (сколько раз цикл проходит по списку): ${config.loopRepeats ?? 1}`);
-                console.log(`> loopDelay (мс пауза между циклами): ${config.loopDelay ?? 0}`);
+                console.log("");
+                ui.msg("info", ui.paint("bold", "Текущие настройки:"));
+                console.log(`    commentdelay        = ${config.commentdelay} мс ${ui.paint("dim", "(базовая задержка)")}`);
+                console.log(`    postDelay           = ${config.postDelay ?? config.commentdelay} мс ${ui.paint("dim", "(пауза МЕЖДУ отдельными постами одного аккаунта)")}`);
+                console.log(`    accountStartDelay   = ${config.accountStartDelay ?? 2000} мс ${ui.paint("dim", "(пауза между стартами аккаунтов)")}`);
+                console.log(`    loopRepeats         = ${config.loopRepeats ?? 1} ${ui.paint("dim", "(сколько раз пройти по всем адресатам)")}`);
+                console.log(`    loopDelay           = ${config.loopDelay ?? 0} мс ${ui.paint("dim", "(пауза между проходами цикла)")}`);
 
-                const cd = await ui.ask("Новый commentdelay (Enter = оставить): ");
+                const cd = await ui.ask("Новый commentdelay, мс (Enter = оставить): ");
                 if (cd && !isNaN(parseInt(cd))) config.commentdelay = parseInt(cd);
+
+                const pd = await ui.ask("Новая пауза между постами postDelay, мс (Enter = оставить): ");
+                if (pd && !isNaN(parseInt(pd))) config.postDelay = parseInt(pd);
+
+                const asd = await ui.ask("Новая пауза между аккаунтами accountStartDelay, мс (Enter = оставить): ");
+                if (asd && !isNaN(parseInt(asd))) config.accountStartDelay = parseInt(asd);
 
                 const lr = await ui.ask("Новое число повторов цикла loopRepeats (Enter = оставить): ");
                 if (lr && !isNaN(parseInt(lr))) config.loopRepeats = parseInt(lr);
 
-                const ld = await ui.ask("Новая пауза между циклами loopDelay в мс (Enter = оставить): ");
+                const ld = await ui.ask("Новая пауза между циклами loopDelay, мс (Enter = оставить): ");
                 if (ld && !isNaN(parseInt(ld))) config.loopDelay = parseInt(ld);
 
                 saveConfig();
-                console.log("> Настройки сохранены в config.json!");
+                ui.msg("ok", "Настройки сохранены в config.json!");
 
                 break;
             }
             case "6": { // Destinations
                 const list = fs.existsSync("./destinations.txt") ? fs.readFileSync("./destinations.txt", "utf8").split("\n").filter((l) => l.trim().length > 0) : [];
 
-                console.log(`> Адресатов в destinations.txt: ${list.length}`);
+                ui.msg("info", `Адресатов в destinations.txt: ${list.length}`);
                 list.forEach((l, i) => console.log(`   ${i + 1}. ${l}`));
 
                 const action = await ui.ask("Действие: add (добавить) / del N (удалить по номеру) / back: ");
@@ -498,7 +517,7 @@ async function runInterface() {
 
                     if (dest) {
                         fs.appendFileSync("./destinations.txt", dest + "\n");
-                        console.log("> Адресат добавлен!");
+                        ui.msg("ok", "Адресат добавлен!");
                     }
                 } else if (action.startsWith("del")) {
                     const idx = parseInt(action.slice(3)) || 0;
@@ -506,9 +525,9 @@ async function runInterface() {
                     if (idx >= 1 && idx <= list.length) {
                         list.splice(idx - 1, 1);
                         fs.writeFileSync("./destinations.txt", list.join("\n") + (list.length ? "\n" : ""));
-                        console.log("> Адресат удален!");
+                        ui.msg("ok", "Адресат удален!");
                     } else {
-                        console.log("> Неверный номер!");
+                        ui.msg("err", "Неверный номер!");
                     }
                 }
 
@@ -522,7 +541,7 @@ async function runInterface() {
             case "8": { // Запустить комментирование
                 ui.close(); // Освобождаем stdin для possible 2FA-ввода внутри sessionHandler
 
-                console.log("> Запускаю комментирование... (по завершении вернитесь в меню кнопкой Enter)");
+                ui.msg("info", "Запускаю комментирование... После завершения нажмите Enter для возврата в меню");
                 await startCommenting(true);
 
                 console.log("");
@@ -534,7 +553,7 @@ async function runInterface() {
                 const confirm = await ui.ask("> Обновить программу до свежей версии с GitHub? Ваши настройки, комментарии и адресаты сохранятся. (y/N): ");
 
                 if (confirm.toLowerCase() != "y") {
-                    console.log("> Отменено.");
+                    ui.msg("info", "Отменено.");
                     break;
                 }
 
@@ -543,21 +562,21 @@ async function runInterface() {
                     const { updateFromGitHub } = require("./update.js");
 
                     await updateFromGitHub(path.join(__dirname, ".."));
-                    console.log("> Обновление завершено! Перезапустите программу (npm start), чтобы применить новые файлы.");
+                    ui.msg("ok", "Обновление завершено! Перезапустите программу (npm start), чтобы применить новые файлы.");
                 } catch (err) {
-                    console.log(`> Ошибка обновления: ${err.message}`);
-                    console.log("> Убедитесь, что есть доступ в интернет (github.com).");
+                    ui.msg("err", `Ошибка обновления: ${err.message}`);
+                    ui.msg("info", "Убедитесь, что есть доступ в интернет (github.com).");
                 }
 
                 break;
             }
             case "10": // Выход
                 ui.close();
-                console.log("> Пока!");
+                ui.msg("info", "Пока!");
                 process.exit(0);
                 break;
             default:
-                console.log("> Неизвестный пункт меню, попробуйте еще раз.");
+                ui.msg("err", "Неизвестный пункт меню, попробуйте еще раз.");
         }
     }
 }
@@ -594,9 +613,11 @@ module.exports.run = async () => {
         process.exit(1);
     }
 
-    // Значения по умолчанию для режима цикла
+    // Значения по умолчанию для режима цикла и задержек
     if (typeof config.loopRepeats === "undefined") config.loopRepeats = 1;
     if (typeof config.loopDelay === "undefined") config.loopDelay = 0;
+    if (typeof config.postDelay === "undefined") config.postDelay = config.commentdelay;
+    if (typeof config.accountStartDelay === "undefined") config.accountStartDelay = 2000;
 
     // Если задан флаг --no-ui (или env NO_UI=1) - работаем как раньше, без интерфейса
     const noUi = process.argv.includes("--no-ui") || process.env.NO_UI == "1";
