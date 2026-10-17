@@ -57,13 +57,18 @@ function checkGroupPostingRights(gid64, community, callback) {
 /**
  * Пытается вступить в группу (для открытых групп это мгновенное действие;
  * для групп по заявке - отправляет заявку, которую модератор должен одобрить).
- * @param {string} gid64 Числовой SteamID64 группы
+ * ВАЖНО: steamcommunity.joinGroup принимает ТОЛЬКО текстовое имя группы (tradecenter2016)
+ * или формат [gid:103582...] - числовой gid64 без скобок Steam не находит и отвечает
+ * "There was an error retrieving information about the specified group".
+ * @param {string} gid64 Числовой SteamID64 группы (103582...) - используется как запасной вариант
+ * @param {string|null} groupName Текстовое имя группы из URL (tradecenter2016), если известно
  * @param {object} community Экземпляр SteamCommunity
  * @param {Function} callback Вызывается как callback(err)
  */
-function tryJoinGroup(gid64, community, callback) {
+function tryJoinGroup(gid64, groupName, community, callback) {
+    const target = groupName || `[gid:${gid64}]`;
     try {
-        community.joinGroup(gid64, (err) => callback(err || null));
+        community.joinGroup(target, (err) => callback(err || null));
     } catch (e) {
         callback(e);
     }
@@ -155,7 +160,7 @@ module.exports.comment = async function(dest, quotes, community, callback) {
         if (isRightsError && autoJoin) {
             global.logger("warn", `Группа '${gid64}' отказала в правах - пробую вступить автоматически...`);
 
-            const joinErr = await new Promise((resolve) => tryJoinGroup(gid64, community, resolve));
+            const joinErr = await new Promise((resolve) => tryJoinGroup(gid64, dest.groupName || null, community, resolve));
 
             if (joinErr) {
                 global.logger("warn", `Не удалось вступить в группу '${gid64}': ${joinErr}`);

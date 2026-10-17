@@ -41,7 +41,11 @@ module.exports.loadDestinations = async function(delay = 1000) {
             if (!Object.values(EIdTypes).includes(type)) {
                 global.logger("warn", `Unsupported destination type '${type}' for entry '${line}'! Skipping...`);
             } else {
-                destinations.push({ raw: line, processed: id, type });
+                // Для групп дополнительно сохраняем текстовое имя (tradecenter2016):
+                // steamcommunity.joinGroup понимает ТОЛЬКО имя или [gid:csg], а не числовой gid64 -
+                // иначе при авто-вступлении Steam отвечает "There was an error retrieving information about the specified group"
+                const groupNameMatch = line.match(/steamcommunity\.com\/groups\/([A-Za-z0-9_-]+)/i);
+                destinations.push({ raw: line, processed: id, type, groupName: groupNameMatch ? groupNameMatch[1] : null });
             }
         } catch (err) {
             global.logger("warn", `Failed to resolve destination '${line}'! ${err.message} Skipping...`);
