@@ -55,23 +55,48 @@ function checkGroupPostingRights(gid64, community, callback) {
 
 
 /**
- * Пытается вступить в группу (для открытых групп это мгновенное действие;
- * для групп по заявке - отправляет заявку, которую модератор должен одобрить).
- * ВАЖНО: steamcommunity.joinGroup принимает ТОЛЬКО текстовое имя группы (tradecenter2016)
- * или формат [gid:103582...] - числовой gid64 без скобок Steam не находит и отвечает
- * "There was an error retrieving information about the specified group".
- * @param {string} gid64 Числовой SteamID64 группы (103582...) - используется как запасной вариант
- * @param {string|null} groupName Текстовое имя группы из URL (tradecenter2016), если известно
- * @param {object} community Экземпляр SteamCommunity
+ * Пытается вступить в группу напрямую POST-запросом на страницу группы.
+ * ВАЖНО: steamcommunity.joinGroup НЕПРИГОДЕН - внутри он делает new SteamID(gid),
+ * который падает и на текстовом имени группы ("Unknown SteamID input format").
+ * Поэтому шлём запрос сами точно так же,
+ * как это делает веб-интерфейс Steam: POST https://steamcommunity.com/groups/NAME
+ * с form-полями action=join, acceptage=agree (согласие с правилами группы) и sessionid.
+ * Для открытых групп это мгновенное вступление; для групп по заявке - отправка заявки.
+ * @param {string} groupName Текстовое имя группы из URL (tradecenter2016)
+ * @param {string} gid64 Числовой SteamID64 группы (для Referer и запаса)
+ * @param {object} community Экземпляр SteamCommunity (нужен для cookies/sessionid)
  * @param {Function} callback Вызывается как callback(err)
  */
-function tryJoinGroup(gid64, groupName, community, callback) {
-    const target = groupName || `[gid:${gid64}]`;
-    try {
-        community.joinGroup(target, (err) => callback(err || null));
-    } catch (e) {
-        callback(e);
-    }
+function tryJoinGroup(groupName, gid64, community, callback) {
+    if (!groupName) return callback(new Error("неизвестно текстовое имя группы"));
+
+    const options = {
+        uri: `https://steamcommunity.com/groups/${groupName}`,
+        form: {
+            action: "join",
+            acceptage: "agree",
+            sessionid: community.getSessionID(),
+        },
+        headers: {
+            "Referer": `https://steamcommunity.com/groups/${groupName}`,
+        },
+    };
+
+    community.httpRequestPost(options, (err, response, body) => {
+        if (err) return callback(err);
+        if (!response || response.statusCode >= 400) return callback(new Error(`HTTP error ${response ? response.statusCode : "?"}`));
+        // Steam не возвращает явного JSON при вступлении - проверяем страницу:
+        // если там есть кнопка "Leave"/"Покинуть" или запись участника - мы в группе.
+        // Если страница содержит ошибку приватности/инвайта - пробрасываем её как ошибку.
+        const text = String(body || "");
+        if (/leavegroup|leave group|покинуть/i.test(text)) return callback(null);
+        if (/this group is private|requires approval|invite-only|закрыт/i.test(text)) {
+            return callback(new Error("группа закрыта для свободного вступления (требует приглашения/одобрения модератора)"));
+        }
+        // Не нашли ни подтверждения, ни явной ошибки - считаем запрос выполненным,
+        // дальше решение примет повторная публикация комментария
+        callback(null);
+    }, "steamcommunity");
 }
 
 
@@ -160,7 +185,7 @@ module.exports.comment = async function(dest, quotes, community, callback) {
         if (isRightsError && autoJoin) {
             global.logger("warn", `Группа '${gid64}' отказала в правах - пробую вступить автоматически...`);
 
-            const joinErr = await new Promise((resolve) => tryJoinGroup(gid64, dest.groupName || null, community, resolve));
+            const joinErr = await new Promise((resolve) => tryJoinGroup(dest.groupName || null, gid64, community, resolve));
 
             if (joinErr) {
                 global.logger("warn", `Не удалось вступить в группу '${gid64}': ${joinErr}`);
