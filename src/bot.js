@@ -14,7 +14,7 @@ const SteamTotp      = require("steam-totp");
 const SteamID        = require("steamid");
 const EResult        = SteamUser.EResult;
 
-const data          = require("../data.json");
+const pkgVersion    = (() => { try { return require("../package.json").version; } catch (err) { return "unknown"; } })();
 const { ask }       = require("./ui.js");
 
 let config;
@@ -41,7 +41,7 @@ async function startCommenting(menuMode = false) {
 
     // Печатаем стартовые сообщения
     logger("", "\n", true);
-    logger("info", `Starting SpamSt v${data.version} by denz1208-blip`, true);
+    logger("info", `Starting SpamSt v${pkgVersion} by denz1208-blip`, true);
     logger("", "---------------------------------------------------------\n", true);
 
     // Показываем предупреждение если commentdelay слишком низкий
@@ -421,13 +421,6 @@ async function runInterface() {
  * Точка входа: загружает файлы конфигурации и решает, запускаться ли через интерфейс или как раньше
  */
 module.exports.run = async () => {
-
-    // data.json может оказаться поврежденным (например это GIF) - подстраховываемся
-    try {
-        data.version = require("../data.json").version || "unknown";
-    } catch (err) {
-        data.version = "unknown";
-    }
 
     // Пробуем загрузить файлы и показываем кастомную ошибку если не получилось
     try {

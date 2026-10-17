@@ -28,7 +28,7 @@ const EResult        = SteamUser.EResult;
 const { checkForUpdate } = require("./helpers/checkForUpdate.js");
 const handleFamilyView   = require("./helpers/handleFamilyView.js");
 const sessionHandler     = require("./sessions/sessionHandler.js");
-const data               = require("./data.json");
+const pkgVersion         = (() => { try { return require("./package.json").version; } catch (err) { return "unknown"; } })();
 
 let config;
 let logininfo;
@@ -60,7 +60,7 @@ module.exports.run = async () => {
 
     // Print startup messages
     logger("", "\n", true);
-    logger("info", `Starting SpamSt v${data.version} by denz1208-blip`, true);
+    logger("info", `Starting SpamSt v${pkgVersion} by denz1208-blip`, true);
     logger("", "---------------------------------------------------------\n", true);
 
     // Check for an update
