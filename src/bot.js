@@ -99,6 +99,7 @@ async function runAccount(acc, destinations, quotes, menuMode) {
 
             const failed = [];
             let http429err = false;
+            let permDenied = false; // Steam явно запретил постить (комментарии выключены / нет прав) - цикл бессмысленен
             let sentOk     = 0;
             let sentFail   = 0;
 
@@ -118,11 +119,23 @@ async function runAccount(acc, destinations, quotes, menuMode) {
                         failed.push(`${tag}: ${destinations[i].raw} (${err})`);
                         sentFail++;
 
-                        if (String(err).includes("HTTP error 429") || String(err).includes("You've been posting too frequently") || String(err).includes("posting comments is currently disabled")) {
+                        const errMsg = String(err);
+
+                        if (errMsg.includes("HTTP error 429") || errMsg.includes("You've been posting too frequently")) {
                             logger("", "", true);
                             logger("error", `[${tag}] Cooldown/limitation error detected! Aborting as all other comments from this IP will fail too! Please wait before trying again.`);
 
                             http429err = true;
+
+                            return;
+                        }
+
+                        // Постоянный отказ Steam (не кулдаун): комментарии запрещены или аккаунту запрещено писать.
+                        // Повторять цикл бесполезно - выходим сразу, чтобы не плодить ошибки и не ловить лимиты.
+                        if (errMsg.includes("do not allow you to add comments") || errMsg.includes("posting comments is currently disabled") || errMsg.includes("not permitted to post")) {
+                            logger("", "", true);
+                            logger("error", `[${tag}] Steam на постоянной основе отказывает в публикации (${errMsg.slice(0, 160)}). Прерываю комментирование этим аккаунтом.`);
+                            permDenied = true;
 
                             return;
                         }
@@ -141,7 +154,7 @@ async function runAccount(acc, destinations, quotes, menuMode) {
                 }
 
                 // Все адресаты этого прохода обработаны - нужен ли следующий проход цикла?
-                if (!http429err && repeatIndex < loopRepeats) {
+                if (!http429err && !permDenied && repeatIndex < loopRepeats) {
                     logger("info", `[${tag}] Finished cycle ${repeatIndex}/${loopRepeats}! Waiting ${loopDelay}ms before next cycle...`);
 
                     await new Promise((r) => setTimeout(r, loopDelay));
@@ -158,7 +171,9 @@ async function runAccount(acc, destinations, quotes, menuMode) {
             if (failed.length > 0) logger("info", `Failed for ${tag}: \n` + failed.join("\n"));
 
             bot.logOff();
-            resolve(!http429err);
+            // Аккаунт считается успешным только если ХОТЬ ОДИН комментарий реально опубликован
+            // и не было постоянных отказов Steam (иначе "Success" был бы ложным)
+            resolve(sentOk > 0 && !permDenied);
         });
     });
 
@@ -322,7 +337,10 @@ async function startCommenting(menuMode = false) {
         results.push(await runAccount(accounts[i], destinations, quotes, menuMode));
     }
 
-    logger("info", `All accounts finished! Success: ${results.filter(Boolean).length}/${accounts.length}\n`);
+    const okCount = results.filter(Boolean).length;
+
+    logger("info", `Все аккаунты завершили работу! Успешно опубликовано хотя бы одного комментария: ${okCount}/${accounts.length}`);
+    if (okCount < accounts.length) logger("warn", "Внимание: статус «успешно» означает, что комментарий РЕАЛЬНО принят Steam. Если он ниже общего числа - смотрите сообщения «Failed for ...» выше (например, группа закрыта для не-участников или аккаунту запрещено писать комментарии).\n");
 
     if (!menuMode) {
         logger("info", "Exiting in 5 seconds...");

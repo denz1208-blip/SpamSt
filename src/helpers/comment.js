@@ -47,7 +47,16 @@ function postGroupCommentChecked(gid64, quote, community, callback) {
 
         const reason = body.message || (typeof body === "object" ? JSON.stringify(body).slice(0, 200) : String(body));
 
-        return callback(new Error(`Steam отказал в публикации: ${reason}`));
+        // Расшифровываем частые причины отказа для групп
+        let hint = "";
+
+        if (String(reason).includes("do not allow you to add comments")) {
+            hint = " Причина: у аккаунта нет прав писать в эту группу (закрытая/инвайт-группа, комментарии только для участников, либо аккаунт не может комментировать - например нет покупки в Steam / семейный режим / ограничение Steam). Попробуйте вступить в группу этим аккаунтом или выберите открытую группу.";
+        } else if (String(reason).includes("posting comments is currently disabled")) {
+            hint = " Причина: в этой группе отключены комментарии.";
+        }
+
+        return callback(new Error(`Steam отказал в публикации: ${reason}${hint}`));
     }, "steamcommunity");
 }
 
