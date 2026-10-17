@@ -1,13 +1,13 @@
 /*
  * File: eslint.config.mjs
- * Project: steam-mass-comment-bot
+ * Project: SpamSt
  * Created Date: 2024-05-03 12:17:16
- * Author: 3urobeat
+ * Author: denz1208-blip
  *
  * Last Modified: 2024-10-26 17:30:14
- * Modified By: 3urobeat
+ * Modified By: denz1208-blip
  *
- * Copyright (c) 2024 3urobeat <https://github.com/3urobeat>
+ * Copyright (c) 2024 denz1208-blip <https://github.com/denz1208-blip>
  *
  * This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
  * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
@@ -16,8 +16,8 @@
 
 
 /*
-    3urobeat's EsLint Config. Requires eslint, @eslint/js & eslint-plugin-jsdoc to be installed as devDependencies.
-    https://github.com/3urobeat
+    denz1208-blip's EsLint Config. Requires eslint, @eslint/js & eslint-plugin-jsdoc to be installed as devDependencies.
+    https://github.com/denz1208-blip
 */
 
 import globals from "globals";

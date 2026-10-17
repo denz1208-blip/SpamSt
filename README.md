@@ -1,5 +1,5 @@
 <div align="center" markdown=1>
-        <p align="center"><img width=45% src="https://3urobeat.com/comment-bot/steamLogo.png"></p>
+        <p align="center"><img width=45% src="https://raw.githubusercontent.com/denz1208-blip/SpamSt/master/demo.gif"></p>
         <strong>Оставляйте комментарии в пару кликов под тысячами профилей, групп, мастерской и обсуждений Steam!</strong>
         <br>Ниже вы найдёте подробную инструкцию по установке, настройке и запуску программы.<br>
         <p></p>
@@ -8,8 +8,7 @@
 <div align="center">
 
 [![nodejs](https://img.shields.io/badge/node.js-v16-brightgreen)](https://nodejs.org/)
-[![Star](https://img.shields.io/badge/-Поставьте%20звезду%20репозиторию!-yellow)](https://github.com/3urobeat/steam-mass-comment-bot)
-[![Steam Group](https://img.shields.io/badge/Steam%20Группа-Вступить!-blue)](https://steamcommunity.com/groups/3urobeatGroup)
+[![Star](https://img.shields.io/badge/-Поставьте%20звезду%20репозиторию!-yellow)](https://github.com/denz1208-blip/SpamSt)
 <p align="center">Нажмите на значок, чтобы узнать больше.</p>
 
 <img src="./demo.gif">
@@ -21,11 +20,11 @@
 ## ✨ Введение:
 Это простой бот для массового оставления комментариев в Steam. Он отправляет комментарии с *одного* аккаунта в *множество* профилей, групп, предметов Мастерской (sharedfiles) или обсуждений.
 
-Проект представляет собой облегчённую версию моего [steam-comment-service-bot](https://github.com/3urobeat/steam-comment-service-bot) — для пользователей, которым нужно лишь регулярно оставлять комментарии друзьям с одного аккаунта.
-Если вам нужно больше возможностей — используйте тот проект: он поддерживает сотни аккаунтов одновременно, имеет продвинутое управление соединениями и обновляется чаще.
+Проект представляет собой облегчённую версию бота для Steam — для пользователей, которым нужно лишь регулярно оставлять комментарии друзьям с одного аккаунта.
+Проект представляет собой облегчённую версию бота для Steam — для пользователей, которым нужно лишь регулярно оставлять комментарии друзьям с одного аккаунта.
 
 > [!WARNING]
-> Я, 3urobeat (разработчик), не несу ответственности и не могу быть привлечён к ответственности за любые действия оператора/пользователя этого бота.
+> Разработчик не несёт ответственности и не могу быть привлечён к ответственности за любые действия оператора/пользователя этого бота.
 > Используя это приложение, вы соглашаетесь использовать его ответственно!
 
 &nbsp;
@@ -61,10 +60,10 @@ node index.js --no-ui
 ## 📝 Установка и подготовка:
 
 ### Шаг 1. Скачайте программу
-Скачайте архив с исходным кодом, нажав сюда: **[Download ZIP](https://github.com/3urobeat/steam-mass-comment-bot/archive/master.zip)**
-(или клонируйте репозиторий командой `git clone https://github.com/3urobeat/steam-mass-comment-bot.git`).
+Скачайте архив с исходным кодом, нажав сюда: **[Download ZIP](https://github.com/denz1208-blip/SpamSt/archive/master.zip)**
+(или клонируйте репозиторий командой `git clone https://github.com/denz1208-blip/SpamSt.git`).
 
-Распакуйте ZIP-архив и откройте папку `steam-mass-comment-bot`.
+Распакуйте ZIP-архив и откройте папку `SpamSt`.
 
 ### Шаг 2. Установите Node.js
 Для работы программы необходим **Node.js версии не ниже 16.0.0**: [Скачать Node.js](https://nodejs.org/)
@@ -121,7 +120,7 @@ npm install --omit=dev
 ID1
 steamcommunity.com/id/name2
 https://steamcommunity.com/profiles/ID3
-3urobeatGroup
+Ваш публичный адрес профиля Steam (например, имя вашего custom-URL)
 https://steamcommunity.com/app/739630/discussions/0/1750150652078713439
 https://steamcommunity.com/sharedfiles/filedetails/?id=2496710411
 ```
@@ -192,7 +191,7 @@ node index.js --no-ui
 
 Другой способ: в проводнике, находясь в папке бота, введите `cmd` в адресную строку и нажмите Enter.
 
-На macOS/Linux: откройте Терминал и перейдите в папку командой `cd /путь/к/steam-mass-comment-bot`.
+На macOS/Linux: откройте Терминал и перейдите в папку командой `cd /путь/к/SpamSt`.
 
 &nbsp;
 
@@ -205,5 +204,5 @@ node index.js --no-ui
 Если `node index.js` пишет, что команды `node` нет — не установлен Node.js (см. Шаг 2).
 Если модули не находятся — вы пропустили установку зависимостей: выполните `npm install --omit=dev` в папке программы.
 
-При других ошибках или вопросах, пожалуйста, [создайте issue здесь](https://github.com/3urobeat/steam-mass-comment-bot/issues/new).
+При других ошибках или вопросах, пожалуйста, [создайте issue здесь](https://github.com/denz1208-blip/SpamSt/issues/new).
 Всё, что появляется в окне консоли/терминала, также сохраняется в файл `output.txt`. Приложите содержимое последнего запуска к вашему issue — так мне будет проще помочь вам разобраться.

@@ -1,13 +1,13 @@
 /*
  * File: loadDestinations.js
- * Project: steam-mass-comment-bot
+ * Project: SpamSt
  * Created Date: 2022-01-23 15:28:34
- * Author: 3urobeat
+ * Author: denz1208-blip
  *
  * Last Modified: 2025-06-25 20:17:14
- * Modified By: 3urobeat
+ * Modified By: denz1208-blip
  *
- * Copyright (c) 2022 - 2025 3urobeat <https://github.com/3urobeat>
+ * Copyright (c) 2022 - 2025 denz1208-blip <https://github.com/denz1208-blip>
  *
  * This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
  * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
@@ -22,7 +22,7 @@ const steamIDResolver = require("steamid-resolver");
 const config = require("../../config.json");
 
 
-// ID resolver was copied from my steam-comment-service-bot: https://github.com/3urobeat/steam-comment-service-bot/blob/master/src/controller/helpers/handleSteamIdResolving.js
+// ID resolver was copied from my steam-comment-service-bot: https://github.com/denz1208-blip/steam-comment-service-bot/blob/master/src/controller/helpers/handleSteamIdResolving.js
 /**
  * ID types supported by this resolver
  * @enum {EIdTypes}
@@ -148,7 +148,7 @@ function handleSteamIdResolving(str, expectedIdType, callback) {
                     else callback(null, str, idType);
             });
 
-        } else if (str.includes("store.steampowered.com/curator/") || str.includes("store.steampowered.com/developer/") || str.includes("store.steampowered.com/publisher/")) { // Apparently developer & publisher are also curators (https://github.com/3urobeat/steam-comment-service-bot/issues/266)
+        } else if (str.includes("store.steampowered.com/curator/") || str.includes("store.steampowered.com/developer/") || str.includes("store.steampowered.com/publisher/")) { // Apparently developer & publisher are also curators (https://github.com/denz1208-blip/steam-comment-service-bot/issues/266)
             logger("debug", "handleSteamIdResolving: User provided curator link, resolving clanid from curator webpage...");
 
             // Update idType and instantly abort if it doesn't match expectations

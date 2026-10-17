@@ -1,5 +1,5 @@
 // Slimmed down copy from my steam-comment-service-bot:
-// https://github.com/3urobeat/steam-comment-service-bot/tree/master/src/libraryPatches
+// https://github.com/denz1208-blip/steam-comment-service-bot/tree/master/src/libraryPatches
 
 // Adds support for features from my PRs which are not merged upstream yet
 // https://github.com/DoctorMcKay/node-steamcommunity/pulls

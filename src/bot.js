@@ -1,6 +1,6 @@
 /*
  * File: src/bot.js
- * Project: steam-mass-comment-bot
+ * Project: SpamSt
  *
  * Ядро бота: логин в Steam и цикл комментирования.
  * Поддерживает запуск из интерфейса (menuMode): по завершении управления меню,
@@ -41,7 +41,7 @@ async function startCommenting(menuMode = false) {
 
     // Печатаем стартовые сообщения
     logger("", "\n", true);
-    logger("info", `Starting steam-mass-comment-bot v${data.version} by 3urobeat`, true);
+    logger("info", `Starting SpamSt v${data.version} by denz1208-blip`, true);
     logger("", "---------------------------------------------------------\n", true);
 
     // Показываем предупреждение если commentdelay слишком низкий
@@ -267,7 +267,7 @@ async function runInterface() {
 
     console.log("");
     console.log("=====================================");
-    console.log(" steam-mass-comment-bot - ИНТЕРФЕЙС ");
+    console.log(" SpamSt - ИНТЕРФЕЙС ");
     console.log("=====================================");
 
     /* eslint-disable no-constant-condition */

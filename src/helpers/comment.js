@@ -1,6 +1,6 @@
 /*
  * File: src/helpers/comment.js
- * Project: steam-mass-comment-bot
+ * Project: SpamSt
  *
  * Отправляет один комментарий на указанный адресат (профиль/группу/sharedfile/обсуждение/review).
  */

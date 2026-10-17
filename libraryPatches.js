@@ -1,13 +1,13 @@
 /*
  * File: checkForUpdate.js
- * Project: steam-mass-comment-bot
+ * Project: SpamSt
  * Created Date: 2024-10-26 16:53:01
- * Author: 3urobeat
+ * Author: denz1208-blip
  *
  * Last Modified: 2024-10-26 16:58:10
- * Modified By: 3urobeat
+ * Modified By: denz1208-blip
  *
- * Copyright (c) 2024 3urobeat <https://github.com/3urobeat>
+ * Copyright (c) 2024 denz1208-blip <https://github.com/denz1208-blip>
  *
  * This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
  * This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
@@ -28,7 +28,7 @@ module.exports.checkForUpdate = function() {
     try {
         const localVersion = require("../../package.json").version;
 
-        const req = https.get("https://raw.githubusercontent.com/3urobeat/steam-mass-comment-bot/master/package.json", function(res) {
+        const req = https.get("https://raw.githubusercontent.com/denz1208-blip/SpamSt/master/package.json", function(res) {
             res.setEncoding("utf8");
 
             res.on("data", (chunk) => {
@@ -43,7 +43,7 @@ module.exports.checkForUpdate = function() {
                     logger("", "", true);
                     logger("", `${logger.colors.fggreen}Update available!${logger.colors.reset} Your version: ${logger.colors.fgred}${localVersion}${logger.colors.reset} | New version: ${logger.colors.fggreen}${onlineVersion}`, true);
                     logger("", "", true);
-                    logger("", `Download it here and transfer your accounts.txt, config.json & proxies.txt:\n${logger.colors.fgcyan}${logger.colors.underscore}https://github.com/3urobeat/steam-mass-comment-bot/archive/refs/heads/master.zip`, true);
+                    logger("", `Download it here and transfer your accounts.txt, config.json & proxies.txt:\n${logger.colors.fgcyan}${logger.colors.underscore}https://github.com/denz1208-blip/SpamSt/archive/refs/heads/master.zip`, true);
                     logger("", "", true);
                 }
             });

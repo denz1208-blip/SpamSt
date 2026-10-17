@@ -1,6 +1,6 @@
 /*
  * File: src/sessions/sessionHandler.js
- * Project: steam-mass-comment-bot
+ * Project: SpamSt
  *
  * Упрощённый обработчик сессий: логинит аккаунт по паролю (с поддержкой Steam Guard /
  * email-кода и QR-входа) и кэширует refreshToken в tokens.json, чтобы не вводить 2FA каждый раз.

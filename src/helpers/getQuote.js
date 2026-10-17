@@ -1,6 +1,6 @@
 /*
  * File: src/helpers/getQuote.js
- * Project: steam-mass-comment-bot
+ * Project: SpamSt
  *
  * Читает список комментариев из comments.txt (по одному на строку).
  */

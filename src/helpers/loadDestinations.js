@@ -1,6 +1,6 @@
 /*
  * File: src/helpers/loadDestinations.js
- * Project: steam-mass-comment-bot
+ * Project: SpamSt
  *
  * Читает destinations.txt и приводит каждую строку к объекту адресата { raw, processed, type }.
  */

@@ -1,5 +1,5 @@
 {
-    "name": "steam-mass-comment-bot",
+    "name": "SpamSt",
     "version": "2.4.1",
     "description": "Comment with a few clicks under a ton of steam profiles & groups!",
     "main": "index.js",
@@ -17,13 +17,13 @@
         "start": "node index.js",
         "test": "echo \"Error: no test specified\" && exit 1"
     },
-    "author": "3urobeat",
+    "author": "denz1208-blip",
     "license": "GPL-3.0",
     "bugs": {
-        "url": "https://github.com/3urobeat/steam-mass-comment-bot/issues"
+        "url": "https://github.com/denz1208-blip/SpamSt/issues"
     },
-    "homepage": "https://github.com/3urobeat",
-    "repository": "https://github.com/3urobeat/steam-mass-comment-bot",
+    "homepage": "https://github.com/denz1208-blip",
+    "repository": "https://github.com/denz1208-blip/SpamSt",
     "devDependencies": {
         "@eslint/js": "^10.0.1",
         "eslint": "^10.3.0",
