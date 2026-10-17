@@ -49,16 +49,16 @@ function getCurrentSessionID(community) {
 function checkGroupPostingRights(gid64, community, callback) {
     const uri = `https://steamcommunity.com/comment/Clan/canPost/${gid64}/?ajax=1`;
 
-    // ВАЖНО: сигнатура httpRequestGet у steamcommunity - (uri, options, callback, source).
-    // Если передать вторым аргументом строку "steamcommunity", библиотека примет её за callback
-    // и упадёт с "callback.apply is not a function". Поэтому источник указываем 4-м аргументом.
+    // ВАЖНО: сигнатура httpRequestGet у steamcommunity - (options, callback[, source]).
+    // Лишний `null` вторым/третьим аргументом ломает разбор аргументов: библиотека принимает
+    // null за callback и колбэк никогда не вызывается (бот «зависает»). Источник указываем последним аргументом.
     community.httpRequestGet({
         uri: uri,
         headers: {
             "X-Requested-With": "XMLHttpRequest",
             "Referer": `https://steamcommunity.com/groups/${gid64}`,
         },
-    }, null, (err, response, body) => {
+    }, (err, response, body) => {
         if (err) return callback(err);
 
         let parsed = null;
@@ -100,11 +100,14 @@ function tryJoinGroup(groupName, gid64, community, callback) {
     // Сначала GET-запросом открываем страницу группы: Steam отдаёт в куки СВОЙ sessionid,
     // а в HTML - <input name="sessionid">. Используем именно его (как это делает браузер при
     // нажатии кнопки "Join") - это исключает "Missing or invalid form session key".
+    // ВАЖНО: у httpRequestGet ровно ТРИ аргумента (options, callback[, source]).
+    // Старый вызов с лишним `null` ломал сигнатуру и колбэк никогда не вызывался -
+    // из-за этого бот «зависал» на этом шаге.
     community.httpRequestGet({
         uri: `https://steamcommunity.com/groups/${groupName}`,
         headers: { "Referer": "https://steamcommunity.com/" },
         timeout: 20000,
-    }, null, (err, response, body) => {
+    }, (err, response, body) => {
         if (err) return finish(err);
 
         let sid = getCurrentSessionID(community); // настоящий sessionid из jar после сохранения кук ответа
@@ -145,7 +148,7 @@ function tryJoinGroup(groupName, gid64, community, callback) {
             }
 
             // Не уверены - перечитаем страницу группы: наличие кнопки выхода = участник
-            community.httpRequestGet({ uri: `https://steamcommunity.com/groups/${groupName}`, timeout: 20000 }, null, (err3, res3, body3) => {
+            community.httpRequestGet({ uri: `https://steamcommunity.com/groups/${groupName}`, timeout: 20000 }, (err3, res3, body3) => {
                 if (err3) return finish(null); // считаем запрос выполненным, решение примет повторная публикация
                 const t3 = String(body3 || "");
                 if (/leavegroup|leave group|покинуть/i.test(t3)) return finish(null);
