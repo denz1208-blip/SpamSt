@@ -28,7 +28,8 @@ module.exports.comment = async function(dest, quotes, community, callback) {
             break;
         case "group":
             postComment = community.postGroupComment;
-            commentArgs = { receiverSteamID64: dest.processed, quote: null };
+            // steamcommunity ожидает nameOrID (имя группы или ID64) - передаём то что порезолвили
+            commentArgs = { nameOrID: dest.processed, quote: null };
             break;
         case "sharedfile":
             postComment = community.postSharedFileComment;
