@@ -1,0 +1,30 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/boss.gd" id="1"]
+
+[sub_resource type="CircleShape2D" id="circle_body"]
+radius = 30.0
+
+[sub_resource type="CircleShape2D" id="circle_shot"]
+radius = 6.0
+
+[node name="Boss" type="CharacterBody2D"]
+collision_layer = 4
+collision_mask = 9
+script = ExtResource("1")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+position = Vector2(0, -10)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+position = Vector2(0, 10)
+shape = SubResource("circle_body")
+
+[node name="ShootBox" type="Area2D" parent="."]
+collision_layer = 8
+collision_mask = 0
+monitoring = false
+monitorable = false
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="ShootBox"]
+shape = SubResource("circle_shot")
