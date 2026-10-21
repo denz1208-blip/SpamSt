@@ -54,7 +54,7 @@ func _generate_floor():
 		_: floor_id = "depths"
 	grid.clear()
 	var rng := State.rng
-	var center := Vector2i(MAP_W / 2, MAP_H / 2)
+	var center := Vector2i(int(MAP_W / 2.0), int(MAP_H / 2.0))
 	start_cell = center
 	var queue := [center]
 	var room_count := 0
@@ -162,10 +162,10 @@ func _rebuild_walls():
 	for d in _dirs():
 		if _neighbor(cur, d) != null:
 			match d:
-				Vector2i.UP: cells.erase(Vector2i(int(GW / 2), GH - 2))
-				Vector2i.DOWN: cells.erase(Vector2i(int(GW / 2), 1))
-				Vector2i.LEFT: cells.erase(Vector2i(GW - 3, int(GH / 2)))
-				Vector2i.RIGHT: cells.erase(Vector2i(1, int(GH / 2)))
+				Vector2i.UP: cells.erase(Vector2i(int(GW / 2.0), GH - 2))
+				Vector2i.DOWN: cells.erase(Vector2i(int(GW / 2.0), 1))
+				Vector2i.LEFT: cells.erase(Vector2i(GW - 3, int(GH / 2.0)))
+				Vector2i.RIGHT: cells.erase(Vector2i(1, int(GH / 2.0)))
 	for c in cells.keys():
 		_add_wall_col(Vector2(c.x * CELL + CELL / 2.0, c.y * CELL + CELL / 2.0))
 
@@ -312,7 +312,7 @@ func _dirs() -> Array:
 	return [Vector2i.UP, Vector2i.DOWN, Vector2i.LEFT, Vector2i.RIGHT]
 
 
-func _neighbor(cell: Vector2i, d: Vector2i):
+func _neighbor(cell: Vector2i, d: Vector2i) -> Variant:
 	var n := cell + d
 	return n if grid.has(n) else null
 
@@ -441,9 +441,9 @@ func _update_hud():
 		State.stats["coins"], State.stats["keys"], State.stats["bomb_count"],
 		floor_num, State.stats["damage"]]
 	if State.active_item != "":
-		var ready := State.active_cooldown <= 0.0
+		var item_ready := State.active_cooldown <= 0.0
 		item_label.text = "[Q] %s: %s" % [State.ITEMS[State.active_item]["name"],
-			"ГОТОВ" if ready else "%.1fс" % State.active_cooldown]
+			"ГОТОВ" if item_ready else "%.1fс" % State.active_cooldown]
 	else:
 		item_label.text = "Предметов собрано: %d" % State.stats["items_taken"].size()
 
