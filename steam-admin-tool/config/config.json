@@ -1,0 +1,48 @@
+{
+  "auth": {
+    "defaultMethod": "sda",
+    "qrTimeoutMs": 180000,
+    "reconnect": {
+      "enabled": true,
+      "baseDelayMs": 30000,
+      "maxDelayMs": 900000,
+      "maxAttempts": 8
+    }
+  },
+  "pool": {
+    "maxConcurrentLogins": 3,
+    "loginStaggerMs": 20000,
+    "accountsFile": "config/accounts.json"
+  },
+  "posting": {
+    "humanPauseMinMs": 60000,
+    "humanPauseMaxMs": 180000,
+    "perGroupCooldownMs": 900000,
+    "crossAccountGroupGapMinMs": 900000,
+    "crossAccountGroupGapMaxMs": 2400000,
+    "maxCommentsPerHourPerAccountPerGroup": 1,
+    "backoffSequenceMin": [5, 15, 45, 135],
+    "sessionTokenTtlMs": 86400000
+  },
+  "scheduler": {
+    "tickIntervalMs": 30000,
+    "dailyReportCron": "0 9 * * *"
+  },
+  "texts": {
+    "file": "config/texts.json",
+    "noRepeatWithinSession": true
+  },
+  "state": {
+    "dir": "data",
+    "dbFile": "data/state.json",
+    "tasksFile": "config/tasks.json"
+  },
+  "logging": {
+    "dir": "logs",
+    "level": "info",
+    "consoleLevel": "info"
+  },
+  "security": {
+    "enforceAccountsChmod": true
+  }
+}

@@ -1,0 +1,51 @@
+[
+  {
+    "id": "helper01",
+    "steamId": "76561198000000001",
+    "personaName": "helper01",
+    "authMethod": "sda",
+    "maFile": "secrets/helper01.maFile",
+    "qrLogin": false,
+    "groups": [
+      {
+        "groupId": "35482003010697271",
+        "groupPermalink": "my-own-group-one"
+      },
+      {
+        "groupId": "35482003010697272",
+        "groupPermalink": "my-own-group-two"
+      }
+    ],
+    "enabled": true
+  },
+  {
+    "id": "helper02",
+    "steamId": "76561198000000002",
+    "personaName": "helper02",
+    "authMethod": "qr",
+    "maFile": null,
+    "qrLogin": true,
+    "groups": [
+      {
+        "groupId": "35482003010697271",
+        "groupPermalink": "my-own-group-one"
+      }
+    ],
+    "enabled": true
+  },
+  {
+    "id": "helper03",
+    "steamId": "76561198000000003",
+    "personaName": "helper03",
+    "authMethod": "sda",
+    "maFile": "secrets/helper03.maFile",
+    "qrLogin": false,
+    "groups": [
+      {
+        "groupId": "35482003010697272",
+        "groupPermalink": "my-own-group-two"
+      }
+    ],
+    "enabled": false
+  }
+]

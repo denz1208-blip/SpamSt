@@ -1,0 +1,31 @@
+{
+  "accounts": {
+    "helper01": {
+      "lastActionAt": 1792992907628,
+      "nextPauseMs": 173045,
+      "backoffStep": 1,
+      "backoffUntil": 0,
+      "lastError": null,
+      "online": false
+    }
+  },
+  "groups": {
+    "g1": {
+      "lastActionAt": 1792992907628
+    }
+  },
+  "comments": [
+    {
+      "accountId": "helper01",
+      "groupId": "g1",
+      "at": 1792992907628
+    }
+  ],
+  "texts": {
+    "helper01": [
+      0,
+      4
+    ]
+  },
+  "stats": {}
+}

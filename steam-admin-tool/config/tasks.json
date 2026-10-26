@@ -1,0 +1,28 @@
+[
+  {
+    "id": "task-0001",
+    "type": "discussion",
+    "groupId": "35482003010697271",
+    "groupPermalink": "my-own-group-one",
+    "topicId": "398221778518503312",
+    "textKey": 0,
+    "scheduledAt": "2026-10-27T10:00:00.000Z",
+    "assignedAccount": null,
+    "status": "pending",
+    "attempts": 0,
+    "lastError": null
+  },
+  {
+    "id": "task-0002",
+    "type": "wall",
+    "groupId": "35482003010697272",
+    "groupPermalink": "my-own-group-two",
+    "topicId": null,
+    "textKey": 3,
+    "scheduledAt": "2026-10-27T12:30:00.000Z",
+    "assignedAccount": "helper01",
+    "status": "pending",
+    "attempts": 0,
+    "lastError": null
+  }
+]
