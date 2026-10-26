@@ -1,3 +1,9 @@
 node_modules/
 logs/
 data/state.json
+
+# Secrets — never commit credentials, maFiles or account configs
+steam-admin-tool/config/accounts.json
+steam-admin-tool/secrets/
+*.maFile
+.env
