@@ -7,3 +7,4 @@ steam-admin-tool/config/accounts.json
 steam-admin-tool/secrets/
 *.maFile
 .env
+steam-admin-tool/data/state.json
